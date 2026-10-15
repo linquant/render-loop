@@ -13,6 +13,7 @@ final class DiffResult
 {
     /**
      * @param list<string> $tagsTouched noms de balises apparaissant dans les lignes modifiées
+     * @param list<Change> $changes changements localisés (sélecteur + ancre texte + avant/après)
      */
     public function __construct(
         public readonly string $unifiedDiff,
@@ -21,6 +22,7 @@ final class DiffResult
         public readonly int $hunks,
         public readonly bool $truncated,
         public readonly array $tagsTouched,
+        public readonly array $changes = [],
     ) {
     }
 
@@ -30,7 +32,7 @@ final class DiffResult
     }
 
     /**
-     * @return array{lines_added: int, lines_removed: int, hunks: int, truncated: bool, tags_touched: list<string>}
+     * @return array{lines_added: int, lines_removed: int, hunks: int, truncated: bool, tags_touched: list<string>, changes: list<array{kind: string, selector: string, context: ?string, before: ?string, after: ?string}>}
      */
     public function summary(): array
     {
@@ -40,6 +42,7 @@ final class DiffResult
             'hunks' => $this->hunks,
             'truncated' => $this->truncated,
             'tags_touched' => $this->tagsTouched,
+            'changes' => array_map(static fn (Change $c): array => $c->toArray(), $this->changes),
         ];
     }
 }

@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Golden-master / characterization-testing mode (`golden-record`,
   `golden-verify`).
 - CLI (`bin/render-loop`) with `table` and `json` output for human and agent use.
+- `changes` in the JSON summary: a localized, semantic list of what changed —
+  each entry carries a best-effort CSS `selector`, a `context` anchor (the nearest
+  heading/label, readable even on legacy markup without ids or classes), a `kind`
+  (`text`/`added`/`removed`) and the `before`/`after` values. The unified diff
+  stays the floor; `changes` falls back to empty when positional paths cascade.
 - `--exit-code` flag: `recheck` and `compare` exit non-zero when the diff is
   non-empty (like `git diff --exit-code`), so an agent can branch on the status
   code instead of parsing the JSON summary.

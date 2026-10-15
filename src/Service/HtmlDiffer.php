@@ -14,8 +14,13 @@ use SebastianBergmann\Diff\Output\UnifiedDiffOutputBuilder;
  */
 final class HtmlDiffer
 {
-    public function __construct(private readonly int $maxHunks = 20)
-    {
+    private readonly ChangeExtractor $changeExtractor;
+
+    public function __construct(
+        private readonly int $maxHunks = 20,
+        ?ChangeExtractor $changeExtractor = null,
+    ) {
+        $this->changeExtractor = $changeExtractor ?? new ChangeExtractor();
     }
 
     public function diff(string $normalizedBefore, string $normalizedAfter): DiffResult
@@ -53,6 +58,12 @@ final class HtmlDiffer
 
         $tags = $this->extractTagsTouched($lines);
 
+        // Les changements localisés n'ont de sens que s'il y a un diff ; sur un
+        // rendu identique on évite de reparser deux fois le DOM pour rien.
+        $changes = ($added > 0 || $removed > 0)
+            ? $this->changeExtractor->extract($normalizedBefore, $normalizedAfter)
+            : [];
+
         return new DiffResult(
             implode("\n", $cappedLines),
             $added,
@@ -60,6 +71,7 @@ final class HtmlDiffer
             $hunks,
             $truncated,
             $tags,
+            $changes,
         );
     }
 
