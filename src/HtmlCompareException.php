@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare;
+namespace RenderLoop;
 
 /**
  * Erreur ATTENDUE, dont le message est sûr à afficher à l'utilisateur

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 /**
  * Auto-calibration du bruit : on capture DEUX fois (ou plus) la même page sans

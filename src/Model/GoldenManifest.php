@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Model;
+namespace RenderLoop\Model;
 
 /**
  * Déclaration versionnée d'une suite golden master : les cas (une URL = une

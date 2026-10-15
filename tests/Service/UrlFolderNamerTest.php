@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Service;
+namespace RenderLoop\Tests\Service;
 
-use HtmlCompare\Service\UrlFolderNamer;
+use RenderLoop\Service\UrlFolderNamer;
 use PHPUnit\Framework\TestCase;
 
 class UrlFolderNamerTest extends TestCase

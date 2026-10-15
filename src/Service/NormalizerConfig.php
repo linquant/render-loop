@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 /**
  * Configuration de la normalisation : quels nœuds retirer (bruit) et à quel

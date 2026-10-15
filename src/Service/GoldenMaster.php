@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
-use HtmlCompare\Model\GoldenManifest;
+use RenderLoop\Model\GoldenManifest;
 
 /**
  * Golden master (approval testing) pour pages legacy sans tests : épingle la

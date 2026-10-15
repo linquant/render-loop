@@ -3,4 +3,4 @@
 /.phpunit.cache/
 /.phpunit.result.cache
 /.php-cs-fixer.cache
-/.html-compare/
+/.render-loop/

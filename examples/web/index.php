@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Framework-agnostic web example for linquant/html-compare.
+ * Framework-agnostic web example for linquant/render-loop.
  *
  * Run it with PHP's built-in server (the engine fetches pages over HTTP, so the
  * server must stay reachable):
@@ -18,21 +18,21 @@ declare(strict_types=1);
  * shows exactly which seams an integrator wires up.
  */
 
-use HtmlCompare\HtmlCompareException;
-use HtmlCompare\Model\SnapshotRepository;
-use HtmlCompare\Service\CurlCaptureStrategy;
-use HtmlCompare\Service\DiffResult;
-use HtmlCompare\Service\GitRevision;
-use HtmlCompare\Service\HtmlCompareService;
-use HtmlCompare\Service\HtmlDiffer;
-use HtmlCompare\Service\HtmlNormalizer;
-use HtmlCompare\Service\NormalizerConfig;
-use HtmlCompare\Service\UrlGuard;
+use RenderLoop\HtmlCompareException;
+use RenderLoop\Model\SnapshotRepository;
+use RenderLoop\Service\CurlCaptureStrategy;
+use RenderLoop\Service\DiffResult;
+use RenderLoop\Service\GitRevision;
+use RenderLoop\Service\HtmlCompareService;
+use RenderLoop\Service\HtmlDiffer;
+use RenderLoop\Service\HtmlNormalizer;
+use RenderLoop\Service\NormalizerConfig;
+use RenderLoop\Service\UrlGuard;
 
 require __DIR__ . '/../../vendor/autoload.php';
 
 // --- Configuration (an integrator would read these from their app) ----------
-$snapshotDir = sys_get_temp_dir() . '/html-compare-example';
+$snapshotDir = sys_get_temp_dir() . '/render-loop-example';
 $host = is_string($_SERVER['HTTP_HOST'] ?? null) ? $_SERVER['HTTP_HOST'] : 'localhost';
 $allowedHosts = [$host, 'localhost', '127.0.0.1'];
 $sessionCookieName = 'PHPSESSID';

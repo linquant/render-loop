@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 /**
  * Capture par curl, pour les pages rendues côté serveur. Le cookie de session

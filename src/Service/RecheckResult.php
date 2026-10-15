@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
-use HtmlCompare\Model\Snapshot;
+use RenderLoop\Model\Snapshot;
 
 /**
  * Résultat d'un recontrôle : la capture de référence, la capture courante, et le

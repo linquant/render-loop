@@ -1,6 +1,6 @@
-# HTML Compare
+# RenderLoop
 
-[![CI](https://github.com/linquant/html-compare/actions/workflows/ci.yml/badge.svg)](https://github.com/linquant/html-compare/actions/workflows/ci.yml)
+[![CI](https://github.com/linquant/render-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/linquant/render-loop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PHP 8.2+](https://img.shields.io/badge/php-8.2%2B-777bb4.svg)](composer.json)
 
@@ -14,7 +14,7 @@ in CI, or driven by an AI agent through its JSON output.
 
 ## What it catches that `git diff` doesn't
 
-`git diff` shows *your* edit. HtmlCompare compares the **rendered state** before
+`git diff` shows *your* edit. RenderLoop compares the **rendered state** before
 and after, so it also reveals **indirect or concurrent** effects: a shared
 `include` that changed, a common function, a SQL query that empties a table, an
 edit made by someone else on the same page. That is its reason to exist on large
@@ -23,7 +23,7 @@ legacy codebases where a page has no test.
 ## Install
 
 ```bash
-composer require linquant/html-compare
+composer require linquant/render-loop
 ```
 
 Requires PHP 8.2+ with `ext-dom`, `ext-libxml`, `ext-json`, and `ext-curl`
@@ -34,21 +34,21 @@ without it).
 
 ```bash
 # 1. capture the state BEFORE your change
-vendor/bin/html-compare -a capture -u "http://localhost:8000/my_page.php" -t before
+vendor/bin/render-loop -a capture -u "http://localhost:8000/my_page.php" -t before
 
 # 2. … you modify the page …
 
 # 3. re-check — the diff must contain ONLY your intended change
-vendor/bin/html-compare -a recheck -u "http://localhost:8000/my_page.php"
+vendor/bin/render-loop -a recheck -u "http://localhost:8000/my_page.php"
 ```
 
 Other actions:
 
 ```bash
-html-compare -a compare --from=<id> --to=<id>   # diff two precise snapshots
-html-compare -a list [-u <url>] [-f json]       # list snapshots
-html-compare -a calibrate -u <url>              # suggest noise selectors to mask
-cat rendered.html | html-compare -a store -u <url> -t before   # push HTML for a JS/SPA page
+render-loop -a compare --from=<id> --to=<id>   # diff two precise snapshots
+render-loop -a list [-u <url>] [-f json]       # list snapshots
+render-loop -a calibrate -u <url>              # suggest noise selectors to mask
+cat rendered.html | render-loop -a store -u <url> -t before   # push HTML for a JS/SPA page
 ```
 
 Useful options: `-d/--dir` (snapshot directory), `--allow-host` (extra allowed
@@ -56,11 +56,11 @@ hosts), `--cookie-name` (session cookie name, default `PHPSESSID`),
 `-f/--format` (`table`|`json`), `--max-hunks`.
 
 **Authenticated pages**: pass the session cookie *value* via the
-`HTMLCOMPARE_COOKIE` environment variable — never as a CLI argument, which would
+`RENDERLOOP_COOKIE` environment variable — never as a CLI argument, which would
 be visible in `ps`:
 
 ```bash
-HTMLCOMPARE_COOKIE=<value> html-compare -a capture -u "http://localhost:8000/account.php"
+RENDERLOOP_COOKIE=<value> render-loop -a capture -u "http://localhost:8000/account.php"
 ```
 
 ## Programmatic usage
@@ -68,8 +68,8 @@ HTMLCOMPARE_COOKIE=<value> html-compare -a capture -u "http://localhost:8000/acc
 The engine is framework-agnostic. Wire it up in a few lines:
 
 ```php
-use HtmlCompare\Model\SnapshotRepository;
-use HtmlCompare\Service\{HtmlCompareService, HtmlNormalizer, HtmlDiffer,
+use RenderLoop\Model\SnapshotRepository;
+use RenderLoop\Service\{HtmlCompareService, HtmlNormalizer, HtmlDiffer,
     NormalizerConfig, CurlCaptureStrategy, PushedHtmlStrategy, UrlGuard};
 
 $service = new HtmlCompareService(
@@ -122,9 +122,9 @@ Pin the current rendered output of a set of representative inputs before a
 refactor, then prove it hasn't drifted (approval testing / characterization):
 
 ```bash
-html-compare -a golden-record --suite=product   # pin current output (before refactor)
+render-loop -a golden-record --suite=product   # pin current output (before refactor)
 # … refactor …
-html-compare -a golden-verify --suite=product   # exit != 0 if any output drifted
+render-loop -a golden-verify --suite=product   # exit != 0 if any output drifted
 ```
 
 The manifest `golden/<suite>.json` declares the cases and the mask; the

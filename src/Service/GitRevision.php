@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 /**
  * Révision git courante, pour horodater une capture par rapport au code.

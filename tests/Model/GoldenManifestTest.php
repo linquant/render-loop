@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Model;
+namespace RenderLoop\Tests\Model;
 
-use HtmlCompare\Model\GoldenManifest;
+use RenderLoop\Model\GoldenManifest;
 use PHPUnit\Framework\TestCase;
 
 class GoldenManifestTest extends TestCase

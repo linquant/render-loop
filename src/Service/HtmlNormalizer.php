@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 use Symfony\Component\CssSelector\CssSelectorConverter;
 

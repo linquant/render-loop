@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic noise calibration (`calibrate`).
 - Golden-master / characterization-testing mode (`golden-record`,
   `golden-verify`).
-- CLI (`bin/html-compare`) with `table` and `json` output for human and agent use.
+- CLI (`bin/render-loop`) with `table` and `json` output for human and agent use.
 - Framework-agnostic web UI example under `examples/web`.
 
-[Unreleased]: https://github.com/linquant/html-compare/commits/main
+[Unreleased]: https://github.com/linquant/render-loop/commits/main

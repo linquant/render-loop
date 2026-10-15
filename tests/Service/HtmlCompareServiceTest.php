@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Service;
+namespace RenderLoop\Tests\Service;
 
-use HtmlCompare\Model\SnapshotRepository;
-use HtmlCompare\Service\HtmlCompareService;
-use HtmlCompare\Service\HtmlDiffer;
-use HtmlCompare\Service\HtmlNormalizer;
-use HtmlCompare\Service\NormalizerConfig;
-use HtmlCompare\Service\PushedHtmlStrategy;
+use RenderLoop\Model\SnapshotRepository;
+use RenderLoop\Service\HtmlCompareService;
+use RenderLoop\Service\HtmlDiffer;
+use RenderLoop\Service\HtmlNormalizer;
+use RenderLoop\Service\NormalizerConfig;
+use RenderLoop\Service\PushedHtmlStrategy;
 use PHPUnit\Framework\TestCase;
 
 class HtmlCompareServiceTest extends TestCase
@@ -66,14 +66,14 @@ class HtmlCompareServiceTest extends TestCase
 
     public function testRecheckSansBaselineLeveUneErreurAttendue(): void
     {
-        $this->expectException(\HtmlCompare\HtmlCompareException::class);
+        $this->expectException(\RenderLoop\HtmlCompareException::class);
 
         $this->service()->recheck('http://app.local/x.php', new PushedHtmlStrategy('<p>x</p>'));
     }
 
     public function testCompareSnapshotsInconnuLeveUneErreurAttendue(): void
     {
-        $this->expectException(\HtmlCompare\HtmlCompareException::class);
+        $this->expectException(\RenderLoop\HtmlCompareException::class);
 
         $this->service()->compareSnapshots('inexistant_1', 'inexistant_2');
     }
