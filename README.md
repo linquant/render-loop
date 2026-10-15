@@ -50,7 +50,13 @@ only unfold the full diff when it is non-empty. The loop an agent should follow:
 1. `capture -t before` the page it is about to touch,
 2. make the change, and make sure the server serves the new file (watch opcache),
 3. `recheck -f json` and assert the diff is empty or contains *only* the intended
-   change.
+   change — read `summary` first, unfold the full diff only when it is non-empty.
+
+Note the exit code: `recheck` (and `compare`) return `0` whether or not there is
+a diff, so an agent should decide from the JSON `summary` (`lines_added` /
+`lines_removed`). If you prefer to branch on the exit code instead, pass
+`--exit-code`: the command then returns non-zero when the diff is non-empty, like
+`git diff --exit-code`. (`golden-verify` already exits non-zero on a regression.)
 
 ## Install
 
@@ -85,7 +91,8 @@ cat rendered.html | render-loop -a store -u <url> -t before   # push HTML for a 
 
 Useful options: `-d/--dir` (snapshot directory), `--allow-host` (extra allowed
 hosts), `--cookie-name` (session cookie name, default `PHPSESSID`),
-`-f/--format` (`table`|`json`), `--max-hunks`.
+`-f/--format` (`table`|`json`), `--max-hunks`, `--exit-code` (exit non-zero when
+the diff is non-empty, like `git diff --exit-code`).
 
 **Authenticated pages**: pass the session cookie *value* via the
 `RENDERLOOP_COOKIE` environment variable — never as a CLI argument, which would

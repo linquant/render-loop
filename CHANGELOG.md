@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Golden-master / characterization-testing mode (`golden-record`,
   `golden-verify`).
 - CLI (`bin/render-loop`) with `table` and `json` output for human and agent use.
+- `--exit-code` flag: `recheck` and `compare` exit non-zero when the diff is
+  non-empty (like `git diff --exit-code`), so an agent can branch on the status
+  code instead of parsing the JSON summary.
 - Framework-agnostic web UI example under `examples/web`.
 
 [Unreleased]: https://github.com/linquant/render-loop/commits/main
