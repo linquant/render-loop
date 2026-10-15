@@ -1,5 +1,5 @@
 {
-    "name": "ponera/html-compare",
+    "name": "johann-nowacki/html-compare",
     "description": "A render regression net for PHP apps: capture a page's rendered HTML, change it, re-check — only the real change shows, the noise (DebugBar, scripts, CSRF tokens, timestamps) is masked. Semantic HTML diff, automatic noise calibration, golden-master mode. CLI + JSON, usable by a human or an AI agent.",
     "keywords": ["regression", "html", "diff", "approval-testing", "golden-master", "snapshot", "legacy", "characterization-test"],
     "type": "library",

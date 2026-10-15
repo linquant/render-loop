@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Framework-agnostic web example for ponera/html-compare.
+ * Framework-agnostic web example for johann-nowacki/html-compare.
  *
  * Run it with PHP's built-in server (the engine fetches pages over HTTP, so the
  * server must stay reachable):
@@ -13,7 +13,7 @@ declare(strict_types=1);
  * then open http://localhost:8000/ and watch any page served by THIS server
  * (same origin — the SSRF guard only allows the local host).
  *
- * This file plays the role the Ponera `HtmlCompareController` plays inside the
+ * This file plays the role a `HtmlCompareController` would play inside a host
  * app, but with plain superglobals instead of a framework base controller — it
  * shows exactly which seams an integrator wires up.
  */
