@@ -9,7 +9,7 @@ use Symfony\Component\Console\Application;
 // Resolve the autoloader whether this package is the root project or a dependency.
 $autoloaders = [
     __DIR__ . '/../vendor/autoload.php',   // standalone checkout
-    __DIR__ . '/../../../autoload.php',    // installed under vendor/johann-nowacki/html-compare
+    __DIR__ . '/../../../autoload.php',    // installed under vendor/linquant/html-compare
 ];
 foreach ($autoloaders as $autoload) {
     if (is_file($autoload)) {

@@ -6,7 +6,7 @@ test-driven — contributions that keep it that way are very welcome.
 ## Getting started
 
 ```bash
-git clone https://github.com/johann-nowacki/html-compare.git
+git clone https://github.com/linquant/html-compare.git
 cd html-compare
 composer install
 ```

@@ -19,4 +19,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI (`bin/html-compare`) with `table` and `json` output for human and agent use.
 - Framework-agnostic web UI example under `examples/web`.
 
-[Unreleased]: https://github.com/johann-nowacki/html-compare/commits/main
+[Unreleased]: https://github.com/linquant/html-compare/commits/main

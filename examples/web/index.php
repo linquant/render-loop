@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Framework-agnostic web example for johann-nowacki/html-compare.
+ * Framework-agnostic web example for linquant/html-compare.
  *
  * Run it with PHP's built-in server (the engine fetches pages over HTTP, so the
  * server must stay reachable):
