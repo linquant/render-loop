@@ -1,8 +1,5 @@
-```
-╭───────── RenderLoop ────────╮
-│  ↻ see only the real change │
-╰─────────────────────────────╯
-```
+
+****RenderLoop**** * ↻ see only the real change*
 
 [![CI](https://github.com/linquant/render-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/linquant/render-loop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
