@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Model;
+namespace RenderLoop\Tests\Model;
 
-use HtmlCompare\Model\Snapshot;
-use HtmlCompare\Model\SnapshotRepository;
+use RenderLoop\Model\Snapshot;
+use RenderLoop\Model\SnapshotRepository;
 use PHPUnit\Framework\TestCase;
 
 class SnapshotRepositoryTest extends TestCase
@@ -59,8 +59,8 @@ class SnapshotRepositoryTest extends TestCase
         $repo = new SnapshotRepository($this->dir);
         $url = 'https://app.local/p.php';
 
-        $repo->save(new Snapshot($url, 1000, '<p>vieux</p>', \HtmlCompare\Service\UrlFolderNamer::toFolderName($url)));
-        $repo->save(new Snapshot($url, 2000, '<p>recent</p>', \HtmlCompare\Service\UrlFolderNamer::toFolderName($url)));
+        $repo->save(new Snapshot($url, 1000, '<p>vieux</p>', \RenderLoop\Service\UrlFolderNamer::toFolderName($url)));
+        $repo->save(new Snapshot($url, 2000, '<p>recent</p>', \RenderLoop\Service\UrlFolderNamer::toFolderName($url)));
 
         $latest = $repo->latest($url);
 
@@ -77,7 +77,7 @@ class SnapshotRepositoryTest extends TestCase
     {
         $repo = new SnapshotRepository($this->dir);
         $url = 'https://app.local/fiche.php';
-        $folder = \HtmlCompare\Service\UrlFolderNamer::toFolderName($url);
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
 
         $idAvant = $repo->save(new Snapshot($url, 1791648528.1234, '<p>19,90</p>', $folder, 'avant'));
         $idApres = $repo->save(new Snapshot($url, 1791648528.1235, '<p>24,90</p>', $folder, 'apres'));
@@ -94,7 +94,7 @@ class SnapshotRepositoryTest extends TestCase
         $repo->save(Snapshot::create('https://app.local/a.php', '<p>a</p>'));
         $repo->save(Snapshot::create('https://app.local/b.php', '<p>b</p>'));
 
-        $folderA = \HtmlCompare\Service\UrlFolderNamer::toFolderName('https://app.local/a.php');
+        $folderA = \RenderLoop\Service\UrlFolderNamer::toFolderName('https://app.local/a.php');
 
         self::assertCount(1, $repo->list($folderA));
         self::assertCount(2, $repo->list());

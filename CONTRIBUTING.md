@@ -1,4 +1,4 @@
-# Contributing to HTML Compare
+# Contributing to RenderLoop
 
 Thanks for taking the time to contribute! This project is small, focused, and
 test-driven — contributions that keep it that way are very welcome.
@@ -6,8 +6,8 @@ test-driven — contributions that keep it that way are very welcome.
 ## Getting started
 
 ```bash
-git clone https://github.com/linquant/html-compare.git
-cd html-compare
+git clone https://github.com/linquant/render-loop.git
+cd render-loop
 composer install
 ```
 

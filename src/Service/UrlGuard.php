@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 /**
  * Barrière anti-SSRF : la capture attache le cookie de session de l'utilisateur,

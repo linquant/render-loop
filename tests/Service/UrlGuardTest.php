@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Service;
+namespace RenderLoop\Tests\Service;
 
-use HtmlCompare\Service\UrlGuard;
+use RenderLoop\Service\UrlGuard;
 use PHPUnit\Framework\TestCase;
 
 class UrlGuardTest extends TestCase

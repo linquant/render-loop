@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
-use HtmlCompare\HtmlCompareException;
-use HtmlCompare\Model\Snapshot;
-use HtmlCompare\Model\SnapshotRepository;
+use RenderLoop\HtmlCompareException;
+use RenderLoop\Model\Snapshot;
+use RenderLoop\Model\SnapshotRepository;
 
 /**
  * Façade du moteur, appelée par la commande console comme par le contrôleur web :

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Service;
+namespace RenderLoop\Service;
 
 /**
  * Deux manières d'obtenir le HTML d'une page : aller le chercher (curl, pour les

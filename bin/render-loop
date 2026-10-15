@@ -3,13 +3,13 @@
 
 declare(strict_types=1);
 
-use HtmlCompare\Command\HtmlCompareCommand;
+use RenderLoop\Command\HtmlCompareCommand;
 use Symfony\Component\Console\Application;
 
 // Resolve the autoloader whether this package is the root project or a dependency.
 $autoloaders = [
     __DIR__ . '/../vendor/autoload.php',   // standalone checkout
-    __DIR__ . '/../../../autoload.php',    // installed under vendor/linquant/html-compare
+    __DIR__ . '/../../../autoload.php',    // installed under vendor/linquant/render-loop
 ];
 foreach ($autoloaders as $autoload) {
     if (is_file($autoload)) {
@@ -25,7 +25,7 @@ if (!class_exists(HtmlCompareCommand::class)) {
 
 $command = new HtmlCompareCommand();
 
-$application = new Application('html-compare');
+$application = new Application('render-loop');
 // Symfony Console renamed Application::add() to addCommand() in 7.4 and removed
 // add() in 8.0; support both so the binary works across 6.4 → 8.x.
 if (method_exists($application, 'addCommand')) {
@@ -33,5 +33,5 @@ if (method_exists($application, 'addCommand')) {
 } else {
     $application->add($command);
 }
-$application->setDefaultCommand('html-compare', true);
+$application->setDefaultCommand('render-loop', true);
 $application->run();

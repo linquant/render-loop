@@ -2,21 +2,21 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Command;
+namespace RenderLoop\Command;
 
-use HtmlCompare\Model\GoldenManifest;
-use HtmlCompare\Model\Snapshot;
-use HtmlCompare\Model\SnapshotRepository;
-use HtmlCompare\Service\CurlCaptureStrategy;
-use HtmlCompare\Service\DiffResult;
-use HtmlCompare\Service\GitRevision;
-use HtmlCompare\Service\GoldenMaster;
-use HtmlCompare\Service\HtmlCompareService;
-use HtmlCompare\Service\HtmlDiffer;
-use HtmlCompare\Service\HtmlNormalizer;
-use HtmlCompare\Service\NormalizerConfig;
-use HtmlCompare\Service\PushedHtmlStrategy;
-use HtmlCompare\Service\UrlGuard;
+use RenderLoop\Model\GoldenManifest;
+use RenderLoop\Model\Snapshot;
+use RenderLoop\Model\SnapshotRepository;
+use RenderLoop\Service\CurlCaptureStrategy;
+use RenderLoop\Service\DiffResult;
+use RenderLoop\Service\GitRevision;
+use RenderLoop\Service\GoldenMaster;
+use RenderLoop\Service\HtmlCompareService;
+use RenderLoop\Service\HtmlDiffer;
+use RenderLoop\Service\HtmlNormalizer;
+use RenderLoop\Service\NormalizerConfig;
+use RenderLoop\Service\PushedHtmlStrategy;
+use RenderLoop\Service\UrlGuard;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
@@ -25,12 +25,12 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(
-    name: 'html-compare',
+    name: 'render-loop',
     description: 'Capture and compare the HTML state of pages (render regression net)',
 )]
 class HtmlCompareCommand extends Command
 {
-    private const DEFAULT_DIR = '.html-compare/snapshots';
+    private const DEFAULT_DIR = '.render-loop/snapshots';
 
     // Delay between the two calibration captures: crosses a one-second boundary
     // so that "now" timestamps (temporal noise) actually differ and get caught.
@@ -55,12 +55,12 @@ class HtmlCompareCommand extends Command
 Detects the changes of a web page between two moments.
 
 <info>Human workflow:</info>
-  1. <comment>html-compare -a capture -u "http://localhost/page.php" -t before</comment>
+  1. <comment>render-loop -a capture -u "http://localhost/page.php" -t before</comment>
   2. (you modify the page)
-  3. <comment>html-compare -a recheck -u "http://localhost/page.php"</comment>
+  3. <comment>render-loop -a recheck -u "http://localhost/page.php"</comment>
 
 <info>JS/SPA pages</info> (the rendered HTML is pushed via STDIN by a headless browser):
-  <comment>cat rendered.html | html-compare -a store -u "http://localhost/app" -t before</comment>
+  <comment>cat rendered.html | render-loop -a store -u "http://localhost/app" -t before</comment>
 
 <info>Other actions:</info>
   compare --from=<id> --to=<id>   diff between two precise snapshots
@@ -71,9 +71,9 @@ Detects the changes of a web page between two moments.
   golden-record --suite=page   pin the current rendered output of the cases in golden/page.json
   golden-verify --suite=page   re-capture and compare to the golden (exit != 0 on render regression)
 
-<info>Authenticated pages:</info> pass the session cookie value via the HTMLCOMPARE_COOKIE
+<info>Authenticated pages:</info> pass the session cookie value via the RENDERLOOP_COOKIE
 environment variable (never as a CLI argument, which would be visible in `ps`):
-  <comment>HTMLCOMPARE_COOKIE=<value> html-compare -a capture -u "http://localhost/page.php"</comment>
+  <comment>RENDERLOOP_COOKIE=<value> render-loop -a capture -u "http://localhost/page.php"</comment>
 HELP);
     }
 
@@ -292,7 +292,7 @@ HELP);
 
         // Session cookie read from the environment (never from a CLI argument,
         // which would be visible in `ps` / the shell history).
-        $cookie = getenv('HTMLCOMPARE_COOKIE');
+        $cookie = getenv('RENDERLOOP_COOKIE');
         $cookie = is_string($cookie) && $cookie !== '' ? $cookie : null;
         $cookieName = $this->optionalString($input, 'cookie-name') ?? 'PHPSESSID';
 

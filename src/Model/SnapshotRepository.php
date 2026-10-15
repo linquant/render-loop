@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Model;
+namespace RenderLoop\Model;
 
-use HtmlCompare\Service\UrlFolderNamer;
+use RenderLoop\Service\UrlFolderNamer;
 
 /**
  * Persistance des captures sur le système de fichiers, un dossier par page

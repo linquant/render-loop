@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Service;
+namespace RenderLoop\Tests\Service;
 
-use HtmlCompare\Model\GoldenManifest;
-use HtmlCompare\Service\CaptureStrategy;
-use HtmlCompare\Service\GoldenMaster;
-use HtmlCompare\Service\HtmlDiffer;
+use RenderLoop\Model\GoldenManifest;
+use RenderLoop\Service\CaptureStrategy;
+use RenderLoop\Service\GoldenMaster;
+use RenderLoop\Service\HtmlDiffer;
 use PHPUnit\Framework\TestCase;
 
 class GoldenMasterTest extends TestCase

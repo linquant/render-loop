@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Model;
+namespace RenderLoop\Model;
 
-use HtmlCompare\Service\UrlFolderNamer;
+use RenderLoop\Service\UrlFolderNamer;
 
 /**
  * Une capture : le HTML BRUT d'une page à un instant donné, plus ses

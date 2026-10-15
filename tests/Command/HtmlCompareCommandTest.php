@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Command;
+namespace RenderLoop\Tests\Command;
 
-use HtmlCompare\Command\HtmlCompareCommand;
-use HtmlCompare\Model\Snapshot;
-use HtmlCompare\Model\SnapshotRepository;
+use RenderLoop\Command\HtmlCompareCommand;
+use RenderLoop\Model\Snapshot;
+use RenderLoop\Model\SnapshotRepository;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -42,7 +42,7 @@ class HtmlCompareCommandTest extends TestCase
     {
         $repo = new SnapshotRepository($this->dir);
         $url = 'https://app.local/fiche.php';
-        $folder = \HtmlCompare\Service\UrlFolderNamer::toFolderName($url);
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
         $avant = $repo->save(new Snapshot($url, 1000.0, '<main id="contenu"><p class="prix">19,90</p></main>', $folder, 'avant'));
         $apres = $repo->save(new Snapshot($url, 2000.0, '<main id="contenu"><p class="prix">24,90</p></main>', $folder, 'apres'));
 

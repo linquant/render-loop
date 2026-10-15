@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Service;
+namespace RenderLoop\Tests\Service;
 
-use HtmlCompare\Service\HtmlNormalizer;
-use HtmlCompare\Service\NormalizerConfig;
+use RenderLoop\Service\HtmlNormalizer;
+use RenderLoop\Service\NormalizerConfig;
 use PHPUnit\Framework\TestCase;
 
 class HtmlNormalizerTest extends TestCase

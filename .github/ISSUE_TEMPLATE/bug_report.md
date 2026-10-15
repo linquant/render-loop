@@ -16,10 +16,10 @@ What you expected instead.
 Ideally a failing test or a small HTML snippet plus the exact command, e.g.:
 
 ```bash
-html-compare -a recheck -u "http://localhost:8000/page.php"
+render-loop -a recheck -u "http://localhost:8000/page.php"
 ```
 
 **Environment**
-- HtmlCompare version / commit:
+- RenderLoop version / commit:
 - PHP version:
 - OS:

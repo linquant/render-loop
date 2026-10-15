@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace HtmlCompare\Tests\Service;
+namespace RenderLoop\Tests\Service;
 
-use HtmlCompare\Service\CurlCaptureStrategy;
+use RenderLoop\Service\CurlCaptureStrategy;
 use PHPUnit\Framework\TestCase;
 
 class CurlCaptureStrategyTest extends TestCase
@@ -28,8 +28,8 @@ class CurlCaptureStrategyTest extends TestCase
     public function testConserveLeCheminSansQuery(): void
     {
         self::assertSame(
-            'http://web/HtmlCompare',
-            CurlCaptureStrategy::rewriteTarget('http://localhost:8084/HtmlCompare', 'http://web'),
+            'http://web/RenderLoop',
+            CurlCaptureStrategy::rewriteTarget('http://localhost:8084/RenderLoop', 'http://web'),
         );
     }
 
