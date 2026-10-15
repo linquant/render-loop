@@ -33,7 +33,7 @@
     ],
     "scripts": {
         "test": "phpunit",
-        "phpstan": "phpstan analyse src tests --level=8 --no-progress"
+        "phpstan": "phpstan analyse src tests --level=10 --no-progress"
     },
     "config": {
         "sort-packages": true

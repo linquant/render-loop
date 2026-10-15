@@ -81,7 +81,7 @@ HELP);
     {
         try {
             $service = $this->buildService($input);
-            $action = (string) $input->getOption('action');
+            $action = $this->stringOption($input, 'action', 'recheck');
 
             return match ($action) {
                 'capture' => $this->doCapture($input, $output, $service),
@@ -264,30 +264,30 @@ HELP);
     private function goldenMaster(InputInterface $input): GoldenMaster
     {
         return new GoldenMaster(
-            new HtmlDiffer(max(1, (int) $input->getOption('max-hunks'))),
-            (string) $input->getOption('golden-dir'),
+            new HtmlDiffer(max(1, $this->intOption($input, 'max-hunks', 40))),
+            $this->stringOption($input, 'golden-dir', 'golden'),
             self::CALIBRATION_DELAY_MICROS,
         );
     }
 
     private function manifestPath(InputInterface $input): string
     {
-        return rtrim((string) $input->getOption('golden-dir'), '/') . '/' . $this->requireOption($input, 'suite') . '.json';
+        return rtrim($this->stringOption($input, 'golden-dir', 'golden'), '/') . '/' . $this->requireOption($input, 'suite') . '.json';
     }
 
     private function buildService(InputInterface $input): HtmlCompareService
     {
         return new HtmlCompareService(
-            new SnapshotRepository((string) $input->getOption('dir')),
+            new SnapshotRepository($this->stringOption($input, 'dir', self::DEFAULT_DIR)),
             new HtmlNormalizer(NormalizerConfig::default()),
-            new HtmlDiffer(max(1, (int) $input->getOption('max-hunks'))),
+            new HtmlDiffer(max(1, $this->intOption($input, 'max-hunks', 40))),
         );
     }
 
     private function curlStrategy(InputInterface $input): CurlCaptureStrategy
     {
-        /** @var list<string> $extra */
-        $extra = array_map('strval', (array) $input->getOption('allow-host'));
+        $raw = $input->getOption('allow-host');
+        $extra = is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
         $hosts = array_merge(['localhost', '127.0.0.1'], $extra);
 
         // Session cookie read from the environment (never from a CLI argument,
@@ -368,6 +368,20 @@ HELP);
         return is_string($value) && $value !== '' ? $value : null;
     }
 
+    private function stringOption(InputInterface $input, string $name, string $default): string
+    {
+        $value = $input->getOption($name);
+
+        return is_string($value) ? $value : $default;
+    }
+
+    private function intOption(InputInterface $input, string $name, int $default): int
+    {
+        $value = $input->getOption($name);
+
+        return is_numeric($value) ? (int) $value : $default;
+    }
+
     private function truncate(string $value, int $max): string
     {
         if (mb_strlen($value) <= $max) {
@@ -379,7 +393,7 @@ HELP);
 
     private function isJson(InputInterface $input): bool
     {
-        return (string) $input->getOption('format') === 'json';
+        return $this->stringOption($input, 'format', 'table') === 'json';
     }
 
     /**
