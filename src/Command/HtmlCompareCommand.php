@@ -41,7 +41,7 @@ class HtmlCompareCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | mask-add | golden-record | golden-verify', 'recheck')
+            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | mask-add | golden-record | golden-verify | capabilities', 'recheck')
             ->addOption('suite', null, InputOption::VALUE_REQUIRED, 'Golden suite name (manifest <golden-dir>/<suite>.json)')
             ->addOption('golden-dir', null, InputOption::VALUE_REQUIRED, 'Golden suites directory', 'golden')
             ->addOption('url', 'u', InputOption::VALUE_REQUIRED, 'Page URL')
@@ -75,6 +75,7 @@ Detects the changes of a web page between two moments.
   calibrate --url=...             capture the page twice and suggest the noise selectors to mask
                                   (--samples=N to capture more; --apply to write them to the config)
   mask-add --selector=...        add your own noise selectors to the config (repeat --selector)
+  capabilities                   machine-readable contract of every action (-f json); for AI agents
 
 <info>Golden master (legacy pages without tests):</info>
   golden-record --suite=page   pin the current rendered output of the cases in golden/page.json
@@ -100,6 +101,7 @@ HELP);
                 'list' => $this->doList($input, $output, $service),
                 'calibrate' => $this->doCalibrate($input, $output, $service),
                 'mask-add' => $this->doMaskAdd($input, $output),
+                'capabilities' => $this->doCapabilities($input, $output),
                 'golden-record' => $this->doGoldenRecord($input, $output),
                 'golden-verify' => $this->doGoldenVerify($input, $output),
                 default => $this->fail($output, "Unknown action: {$action}"),
@@ -268,6 +270,129 @@ HELP);
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Contrat machine : la liste des actions avec, pour chacune, son but, ses
+     * options requises/optionnelles, la forme de sa sortie JSON et la sémantique de
+     * son code de retour. Pensé pour qu'un agent sache quoi appeler sans parser le
+     * texte d'aide. `-f json` (défaut implicite ici) renvoie le manifeste ; sinon un
+     * résumé lisible renvoie vers `-f json`.
+     */
+    private function doCapabilities(InputInterface $input, OutputInterface $output): int
+    {
+        $manifest = $this->capabilitiesManifest();
+
+        if ($this->isJson($input)) {
+            $output->writeln($this->json($manifest));
+
+            return self::SUCCESS;
+        }
+
+        $output->writeln('<comment>Actions</comment> (run with <info>-a capabilities -f json</info> for the full machine contract):');
+        foreach ($manifest['actions'] as $action) {
+            $required = $action['required'] === [] ? '' : ' (requires ' . implode(', ', $action['required']) . ')';
+            $output->writeln(sprintf('  <info>%s</info>%s — %s', $action['name'], $required, $action['summary']));
+        }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * @return array{tool: string, formats: list<string>, exit_codes: string, actions: list<array{name: string, summary: string, required: list<string>, optional: list<string>, output: string, exit_code: string}>}
+     */
+    private function capabilitiesManifest(): array
+    {
+        $capture = ['url', 'tag', 'dir', 'config', 'allow-host', 'cookie-name'];
+        $diffOut = 'with -f json: {"summary":{"lines_added":int,"lines_removed":int,"hunks":int,"truncated":bool,"tags_touched":[string],"changes":[{"kind":"text|added|removed","selector":string,"context":string|null,"before":string|null,"after":string|null}]},"diff":string}';
+
+        return [
+            'tool' => 'render-loop',
+            'formats' => ['table', 'json'],
+            'exit_codes' => '0 = success. recheck/compare return 0 even with a diff unless --exit-code is passed; golden-verify returns non-zero on a render regression; any action returns non-zero on error.',
+            'actions' => [
+                [
+                    'name' => 'capture',
+                    'summary' => 'Fetch a page (curl) and store its rendered HTML as a "before" snapshot.',
+                    'required' => ['url'],
+                    'optional' => ['tag', 'dir', 'config', 'allow-host', 'cookie-name'],
+                    'output' => 'text: the saved snapshot id.',
+                    'exit_code' => '0 on success, non-zero on error.',
+                ],
+                [
+                    'name' => 'store',
+                    'summary' => 'Store HTML piped on STDIN as a snapshot (for JS/SPA pages rendered elsewhere).',
+                    'required' => ['url'],
+                    'optional' => ['tag', 'dir', 'config'],
+                    'output' => 'text: the saved snapshot id. (HTML is read from STDIN.)',
+                    'exit_code' => '0 on success, non-zero on error or empty STDIN.',
+                ],
+                [
+                    'name' => 'recheck',
+                    'summary' => 'Re-capture the page and diff it against its latest snapshot — only the real change should surface.',
+                    'required' => ['url'],
+                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code', 'allow-host', 'cookie-name'],
+                    'output' => $diffOut,
+                    'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code.',
+                ],
+                [
+                    'name' => 'compare',
+                    'summary' => 'Diff two precise snapshots by id.',
+                    'required' => ['from', 'to'],
+                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code'],
+                    'output' => $diffOut,
+                    'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code.',
+                ],
+                [
+                    'name' => 'list',
+                    'summary' => 'List stored snapshots, optionally filtered by url.',
+                    'required' => [],
+                    'optional' => ['url', 'dir', 'format'],
+                    'output' => 'with -f json: [{"id":string,"url":string,"tag":string|null,"datetime":string}]',
+                    'exit_code' => '0.',
+                ],
+                [
+                    'name' => 'calibrate',
+                    'summary' => 'Capture the page several times unchanged; whatever differs is noise. Suggests (or, with --apply, writes) the selectors to mask.',
+                    'required' => ['url'],
+                    'optional' => ['samples', 'apply', 'config', 'dir', 'format', 'allow-host', 'cookie-name'],
+                    'output' => 'with -f json: {"candidates":[string],"applied":[string]}',
+                    'exit_code' => '0.',
+                ],
+                [
+                    'name' => 'mask-add',
+                    'summary' => 'Add your own noise selectors to the config without calibration (idempotent).',
+                    'required' => ['selector'],
+                    'optional' => ['config', 'format'],
+                    'output' => 'with -f json: {"applied":[string]} (only the selectors actually added).',
+                    'exit_code' => '0 on success, non-zero if no --selector is given.',
+                ],
+                [
+                    'name' => 'capabilities',
+                    'summary' => 'This manifest: the machine-readable contract of every action.',
+                    'required' => [],
+                    'optional' => ['format'],
+                    'output' => 'with -f json: this document.',
+                    'exit_code' => '0.',
+                ],
+                [
+                    'name' => 'golden-record',
+                    'summary' => 'Pin the current rendered output of a suite of cases (approval/characterization testing).',
+                    'required' => ['suite'],
+                    'optional' => ['golden-dir', 'config', 'dir', 'allow-host', 'cookie-name'],
+                    'output' => 'text: number of cases pinned and mask size.',
+                    'exit_code' => '0 on success, non-zero on error.',
+                ],
+                [
+                    'name' => 'golden-verify',
+                    'summary' => 'Re-capture each case of a suite and compare to its golden; fails on any render drift.',
+                    'required' => ['suite'],
+                    'optional' => ['golden-dir', 'config', 'dir', 'format', 'allow-host', 'cookie-name'],
+                    'output' => 'text/json per case (OK / CHANGED + summary / missing).',
+                    'exit_code' => 'non-zero if any case changed or is missing a golden; 0 when all match.',
+                ],
+            ],
+        ];
     }
 
     private function doGoldenRecord(InputInterface $input, OutputInterface $output): int

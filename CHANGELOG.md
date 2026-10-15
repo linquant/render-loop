@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Golden-master / characterization-testing mode (`golden-record`,
   `golden-verify`).
 - CLI (`bin/render-loop`) with `table` and `json` output for human and agent use.
+- `capabilities` action: a machine-readable contract of every action (`-f json`) —
+  required options, JSON output shape and exit-code semantics — so an agent can
+  discover the CLI without parsing the help text.
 - `mask-add` action: an agent (or a human) can add its own noise selectors to the
   config without calibration — `--selector` is repeatable and idempotent.
 - `calibrate --apply` writes the discovered selectors straight into the config,
