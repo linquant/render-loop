@@ -51,6 +51,7 @@ class HtmlCompareCommand extends Command
             ->addOption('dir', 'd', InputOption::VALUE_REQUIRED, 'Snapshot storage directory', self::DEFAULT_DIR)
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'table | json', 'table')
             ->addOption('max-hunks', null, InputOption::VALUE_REQUIRED, 'Maximum number of hunks displayed', '40')
+            ->addOption('exit-code', null, InputOption::VALUE_NONE, 'Exit with a non-zero status when the diff is non-empty (recheck/compare), like `git diff --exit-code`')
             ->setHelp(<<<'HELP'
 Detects the changes of a web page between two moments.
 
@@ -301,10 +302,17 @@ HELP);
 
     private function renderDiff(InputInterface $input, OutputInterface $output, DiffResult $diff, string $header): int
     {
+        // With --exit-code, a non-empty diff is a failure status (like `git diff
+        // --exit-code`); an identical render is always a success. Without the flag
+        // the status stays SUCCESS regardless, so existing callers are unaffected.
+        $diffStatus = ($input->getOption('exit-code') && !$diff->isIdentical())
+            ? self::FAILURE
+            : self::SUCCESS;
+
         if ($this->isJson($input)) {
             $output->writeln($this->json(['summary' => $diff->summary(), 'diff' => $diff->unifiedDiff]));
 
-            return self::SUCCESS;
+            return $diffStatus;
         }
 
         if ($diff->isIdentical()) {
@@ -326,7 +334,7 @@ HELP);
         $output->writeln('');
         $this->writeUnifiedDiff($output, $diff->unifiedDiff);
 
-        return self::SUCCESS;
+        return $diffStatus;
     }
 
     /**

@@ -71,6 +71,40 @@ class HtmlCompareCommandTest extends TestCase
         self::assertStringContainsString($apres, $display);
     }
 
+    public function testExitCodeEchoueQuandLeDiffEstNonVide(): void
+    {
+        [$tester, $avant, $apres] = $this->deuxCaptures();
+
+        $tester->execute(['--action' => 'compare', '--from' => $avant, '--to' => $apres, '--dir' => $this->dir, '--exit-code' => true]);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('24,90', $tester->getDisplay());
+    }
+
+    public function testExitCodeReussitQuandLeRenduEstIdentique(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $url = 'https://app.local/fiche.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $html = '<main id="contenu"><p class="prix">19,90</p></main>';
+        $a = $repo->save(new Snapshot($url, 1000.0, $html, $folder, 'avant'));
+        $b = $repo->save(new Snapshot($url, 2000.0, $html, $folder, 'apres'));
+
+        $tester = new CommandTester(new HtmlCompareCommand());
+        $tester->execute(['--action' => 'compare', '--from' => $a, '--to' => $b, '--dir' => $this->dir, '--exit-code' => true]);
+
+        $tester->assertCommandIsSuccessful();
+    }
+
+    public function testSansExitCodeLeDiffNonVideResteUnSucces(): void
+    {
+        [$tester, $avant, $apres] = $this->deuxCaptures();
+
+        $tester->execute(['--action' => 'compare', '--from' => $avant, '--to' => $apres, '--dir' => $this->dir]);
+
+        $tester->assertCommandIsSuccessful();
+    }
+
     public function testActionInconnueEchoue(): void
     {
         $tester = new CommandTester(new HtmlCompareCommand());
