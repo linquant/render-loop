@@ -1,8 +1,16 @@
-# RenderLoop
+```
+╭───────── RenderLoop ────────╮
+│  ↻ see only the real change │
+╰─────────────────────────────╯
+```
 
 [![CI](https://github.com/linquant/render-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/linquant/render-loop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PHP 8.2+](https://img.shields.io/badge/php-8.2%2B-777bb4.svg)](composer.json)
+[![PHPStan](https://img.shields.io/badge/PHPStan-max-brightgreen.svg)](phpstan.neon.dist)
+[![AI-agent ready](https://img.shields.io/badge/AI--agent-ready-8A2BE2.svg)](#-built-for-ai-coding-agents)
+
+> **Did my edit do exactly what I intended — and nothing else?** 🎯
 
 **A render feedback loop for PHP apps.** Capture a page's rendered HTML, change
 the code, then re-check — only the *real* change surfaces. The noise (DebugBar,
@@ -13,16 +21,35 @@ headless browser for server-rendered pages and stays cheap to run — in a shell
 in CI, or as the feedback signal an **AI coding agent** reads after it edits your
 code.
 
-## The loop
+### At a glance
+
+|   |   |
+|---|---|
+| 🧩 **What** | A semantic HTML diff for server-rendered PHP pages |
+| ⚡ **No** | headless browser, no screenshots, no pixel diff |
+| 🤖 **For** | humans *and* AI coding agents (machine-readable contract) |
+| 🎭 **Masks** | DebugBar, CSRF tokens, timestamps, site chrome — by selector |
+| 🪙 **Cheap** | token-budgeted JSON summary, runs in a shell or in CI |
+
+## 🔁 The loop
 
 ```
-   ┌──────────────────────────────────────────────┐
-   │                                                │
-   ▼                                                │
- capture ──▶  you / an agent  ──▶  re-check ──▶  semantic diff
- "before"      change the code                   (noise masked)
-                                                     │
-                                   only the real change shows ─┘
+        📸 capture "before"
+              │
+              ▼
+   ┌───────────────────────┐
+   │  you / an agent edit   │
+   └───────────┬───────────┘
+               ▼
+          🔁 re-check
+               │
+               ▼
+   ⟨ semantic diff · noise masked ⟩
+               │
+     ┌─────────┴──────────┐
+     │  only the REAL      │──▶ ✅ intended change
+     │  change surfaces    │──▶ ⚠️  anything else = regression
+     └─────────────────────┘
 ```
 
 1. **Capture** the rendered state *before* touching anything (`-t before`).
@@ -30,7 +57,7 @@ code.
 3. **Re-check** — RenderLoop re-renders, masks the noise, and shows a diff that
    should contain **only** your intended change. Anything else is a regression.
 
-## What it catches that `git diff` doesn't
+## 🔍 What it catches that `git diff` doesn't
 
 `git diff` shows *your* edit. RenderLoop compares the **rendered state** before
 and after, so it also reveals **indirect or concurrent** effects: a shared
@@ -38,7 +65,17 @@ and after, so it also reveals **indirect or concurrent** effects: a shared
 edit someone else made on the same page. That is its reason to exist on large
 legacy codebases where a page has no test.
 
-## Built for AI coding agents
+```
+  git diff                        RenderLoop
+  ────────                        ──────────
+  shows YOUR edit            →    shows the RENDERED change
+    - $price = 1295;                article > p.price
+    + $price =  995;                "$1295.00"  →  "$995.00"
+                              +     caught: a shared include
+                                    silently emptied the cart 👀
+```
+
+## 🤖 Built for AI coding agents
 
 RenderLoop gives an autonomous agent a tight, cheap, high-signal feedback loop:
 *"did my edit do exactly what I intended, and nothing else?"*
@@ -87,7 +124,7 @@ a diff, so an agent should decide from the JSON `summary` (`lines_added` /
 `--exit-code`: the command then returns non-zero when the diff is non-empty, like
 `git diff --exit-code`. (`golden-verify` already exits non-zero on a regression.)
 
-## Install
+## 📦 Install
 
 ```bash
 composer require linquant/render-loop
@@ -97,7 +134,7 @@ Requires PHP 8.2+ with `ext-dom`, `ext-libxml`, `ext-json`, and `ext-curl`
 (curl is only needed for the fetch-based capture; the push strategy works
 without it).
 
-## CLI quickstart
+## ⚡ CLI quickstart
 
 ```bash
 # 1. capture the state BEFORE your change
@@ -121,6 +158,9 @@ render-loop -a capabilities -f json            # machine-readable contract of ev
 cat rendered.html | render-loop -a store -u <url> -t before   # push HTML for a JS/SPA page
 ```
 
+<details>
+<summary><strong>All useful options & authenticated pages</strong></summary>
+
 Useful options: `-d/--dir` (snapshot directory), `-c/--config` (normalizer config
 file — point it at **your project's** config, not the one bundled under `vendor/`),
 `--allow-host` (extra allowed hosts), `--cookie-name` (session cookie name,
@@ -137,7 +177,9 @@ be visible in `ps`:
 RENDERLOOP_COOKIE=<value> render-loop -a capture -u "http://localhost:8000/account.php"
 ```
 
-## Programmatic usage
+</details>
+
+## 🧰 Programmatic usage
 
 The engine is framework-agnostic. Wire it up in a few lines:
 
@@ -168,7 +210,8 @@ if (!$result->diff->isIdentical()) {
 $service->capture('http://localhost/app', new PushedHtmlStrategy($renderedHtml), 'before');
 ```
 
-### Capture strategies
+<details>
+<summary><strong>Capture strategies</strong></summary>
 
 `CaptureStrategy` is the extension point:
 
@@ -178,7 +221,9 @@ $service->capture('http://localhost/app', new PushedHtmlStrategy($renderedHtml),
 - **`PushedHtmlStrategy`** — takes HTML already rendered elsewhere (a headless
   browser for a Vue/React page). Implement the interface for anything else.
 
-### Noise masking & calibration
+</details>
+
+## 🎭 Noise masking & calibration
 
 Before comparing, the HTML is normalized: `<script>`/`<style>`/comments are
 stripped, then **CSS selectors** (the normalizer config) remove noise nodes
@@ -210,7 +255,7 @@ render-loop -a mask-add --selector='.chat-widget' --selector='.cookie-banner' -c
 Both `--apply` and `mask-add` are idempotent (no duplicate selectors) and write to
 the `-c/--config` file.
 
-### Golden master (legacy pages without tests)
+## 🏆 Golden master (legacy pages without tests)
 
 Pin the current rendered output of a set of representative inputs before a
 refactor, then prove it hasn't drifted (approval testing / characterization):
@@ -226,7 +271,7 @@ normalized output lands in `golden/<suite>/<case>.html` — **commit it**, the d
 reads back in git like an `.approved` file. Capture against **frozen data** so
 the diff reflects *code*, not *data*.
 
-## Web UI example
+## 🖥️ Web UI example
 
 A framework-agnostic web UI ships under [`examples/web`](examples/web):
 
@@ -239,7 +284,7 @@ It is the reference for integrating the engine behind your own controller: it
 uses plain superglobals instead of a framework base controller, so you can see
 exactly which seams to wire.
 
-## Try the whole loop
+## 🛍️ Try the whole loop
 
 A runnable demo app lives under
 [`examples/demo-shop`](examples/demo-shop): a tiny PHP shop with deliberate noise
@@ -250,14 +295,14 @@ edit, an indirect effect, calibrate and golden master.
 bash examples/demo-shop/run-demo.sh   # from the repo root
 ```
 
-## Security
+## 🔒 Security
 
 The capture attaches the user's session cookie, so a free-form URL would let a
 caller exfiltrate what that user sees to a third-party host. `UrlGuard` therefore
 restricts capture to an http(s) scheme and an **allow-list of hosts** (the local
 origin). Keep that list tight. See [SECURITY.md](SECURITY.md).
 
-## Limitations (honest)
+## ⚠️ Limitations (honest)
 
 - Covers **rendering only** — a computation that goes to the database, an export,
   a PDF or an API stays invisible.
@@ -270,12 +315,12 @@ origin). Keep that list tight. See [SECURITY.md](SECURITY.md).
   those paths makes `changes` fall back to empty. The unified `diff` is the
   signal you can always rely on; `changes` only ever adds to it.
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Run
 `composer test` and `composer phpstan` before opening a pull request. Security
 issues: please follow [SECURITY.md](SECURITY.md).
 
-## License
+## 📄 License
 
 MIT — see [LICENSE](LICENSE).
