@@ -24,6 +24,7 @@ final class GoldenMaster
         private readonly HtmlDiffer $differ,
         private readonly string $goldenRootDir,
         private readonly int $calibrationDelayMicros = 0,
+        private readonly ?NormalizerConfig $baseConfig = null,
     ) {
     }
 
@@ -74,11 +75,11 @@ final class GoldenMaster
 
     private function normalizerFor(GoldenManifest $manifest): HtmlNormalizer
     {
-        $default = NormalizerConfig::default();
+        $base = $this->baseConfig ?? NormalizerConfig::default();
 
         return new HtmlNormalizer(new NormalizerConfig(
-            $default->rootSelector(),
-            array_merge($default->noiseSelectors(), $manifest->mask()),
+            $base->rootSelector(),
+            array_merge($base->noiseSelectors(), $manifest->mask()),
         ));
     }
 

@@ -110,13 +110,18 @@ Other actions:
 render-loop -a compare --from=<id> --to=<id>   # diff two precise snapshots
 render-loop -a list [-u <url>] [-f json]       # list snapshots
 render-loop -a calibrate -u <url>              # suggest noise selectors to mask
+render-loop -a calibrate -u <url> --apply      # …and write them into the config
+render-loop -a mask-add --selector='.chat-widget'  # add your own noise selectors
 cat rendered.html | render-loop -a store -u <url> -t before   # push HTML for a JS/SPA page
 ```
 
-Useful options: `-d/--dir` (snapshot directory), `--allow-host` (extra allowed
-hosts), `--cookie-name` (session cookie name, default `PHPSESSID`),
-`-f/--format` (`table`|`json`), `--max-hunks`, `--exit-code` (exit non-zero when
-the diff is non-empty, like `git diff --exit-code`).
+Useful options: `-d/--dir` (snapshot directory), `-c/--config` (normalizer config
+file — point it at **your project's** config, not the one bundled under `vendor/`),
+`--allow-host` (extra allowed hosts), `--cookie-name` (session cookie name,
+default `PHPSESSID`), `-f/--format` (`table`|`json`), `--max-hunks`, `--samples`
+(number of calibration captures, `>= 2`), `--apply` (calibrate writes its findings
+to the config), `--selector` (`mask-add`, repeatable), `--exit-code` (exit non-zero
+when the diff is non-empty, like `git diff --exit-code`).
 
 **Authenticated pages**: pass the session cookie *value* via the
 `RENDERLOOP_COOKIE` environment variable — never as a CLI argument, which would
@@ -170,14 +175,34 @@ $service->capture('http://localhost/app', new PushedHtmlStrategy($renderedHtml),
 ### Noise masking & calibration
 
 Before comparing, the HTML is normalized: `<script>`/`<style>`/comments are
-stripped, then **CSS selectors** (`config/normalizer.json`) remove noise nodes
+stripped, then **CSS selectors** (the normalizer config) remove noise nodes
 (DebugBar, CSRF tokens, site chrome). Masking is **always by selector, never by
 regex on content** — a price dropping to `0.00` must stay visible in the diff,
 not be erased as noise.
 
-`calibrate` finds the selectors for you: it captures the same page twice without
-any change; whatever differs between two identical captures *is* noise
-(timestamps, counters, tokens), and it prints the selectors to add to your mask.
+The config file defaults to the bundled `config/normalizer.json`, but once the
+library is installed that lives under `vendor/` (read-only). Point `-c/--config`
+at a file **in your own project** so the mask is yours to version and edit.
+
+`calibrate` finds the selectors for you: it captures the same page a few times
+without any change; whatever differs between identical captures *is* noise
+(timestamps, counters, tokens). `--samples=N` captures more than twice to catch
+slower-moving noise, and `--apply` writes the findings straight into the config
+instead of printing them:
+
+```bash
+render-loop -a calibrate -u <url> --samples=4 --apply -c normalizer.json
+```
+
+**An agent can also declare its own noise**, without waiting for calibration — it
+knows a chat widget or a cookie banner is noise:
+
+```bash
+render-loop -a mask-add --selector='.chat-widget' --selector='.cookie-banner' -c normalizer.json
+```
+
+Both `--apply` and `mask-add` are idempotent (no duplicate selectors) and write to
+the `-c/--config` file.
 
 ### Golden master (legacy pages without tests)
 

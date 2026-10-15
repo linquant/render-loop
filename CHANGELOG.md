@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Golden-master / characterization-testing mode (`golden-record`,
   `golden-verify`).
 - CLI (`bin/render-loop`) with `table` and `json` output for human and agent use.
+- `mask-add` action: an agent (or a human) can add its own noise selectors to the
+  config without calibration — `--selector` is repeatable and idempotent.
+- `calibrate --apply` writes the discovered selectors straight into the config,
+  and `--samples=N` captures more than twice to catch slower-moving noise.
+- `-c/--config` option: point normalization at a config file in your own project
+  rather than the one bundled under `vendor/`. Golden master honors it too.
 - `changes` in the JSON summary: a localized, semantic list of what changed —
   each entry carries a best-effort CSS `selector`, a `context` anchor (the nearest
   heading/label, readable even on legacy markup without ids or classes), a `kind`

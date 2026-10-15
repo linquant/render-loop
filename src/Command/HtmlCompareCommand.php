@@ -15,6 +15,7 @@ use RenderLoop\Service\GoldenMaster;
 use RenderLoop\Service\HtmlCompareService;
 use RenderLoop\Service\HtmlDiffer;
 use RenderLoop\Service\HtmlNormalizer;
+use RenderLoop\Service\NoiseConfigWriter;
 use RenderLoop\Service\NormalizerConfig;
 use RenderLoop\Service\PushedHtmlStrategy;
 use RenderLoop\Service\UrlGuard;
@@ -40,7 +41,7 @@ class HtmlCompareCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | golden-record | golden-verify', 'recheck')
+            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | mask-add | golden-record | golden-verify', 'recheck')
             ->addOption('suite', null, InputOption::VALUE_REQUIRED, 'Golden suite name (manifest <golden-dir>/<suite>.json)')
             ->addOption('golden-dir', null, InputOption::VALUE_REQUIRED, 'Golden suites directory', 'golden')
             ->addOption('url', 'u', InputOption::VALUE_REQUIRED, 'Page URL')
@@ -53,6 +54,10 @@ class HtmlCompareCommand extends Command
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'table | json', 'table')
             ->addOption('max-hunks', null, InputOption::VALUE_REQUIRED, 'Maximum number of hunks displayed', '40')
             ->addOption('exit-code', null, InputOption::VALUE_NONE, 'Exit with a non-zero status when the diff is non-empty (recheck/compare), like `git diff --exit-code`')
+            ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Normalizer config file (noise selectors); defaults to the bundled config/normalizer.json')
+            ->addOption('samples', null, InputOption::VALUE_REQUIRED, 'Number of calibration captures (>= 2); more catches slower-moving noise', '2')
+            ->addOption('apply', null, InputOption::VALUE_NONE, 'calibrate: append the discovered selectors straight into the normalizer config')
+            ->addOption('selector', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'mask-add: a noise selector to ignore (repeatable)', [])
             ->setHelp(<<<'HELP'
 Detects the changes of a web page between two moments.
 
@@ -68,6 +73,8 @@ Detects the changes of a web page between two moments.
   compare --from=<id> --to=<id>   diff between two precise snapshots
   list [--url=...]                list snapshots
   calibrate --url=...             capture the page twice and suggest the noise selectors to mask
+                                  (--samples=N to capture more; --apply to write them to the config)
+  mask-add --selector=...        add your own noise selectors to the config (repeat --selector)
 
 <info>Golden master (legacy pages without tests):</info>
   golden-record --suite=page   pin the current rendered output of the cases in golden/page.json
@@ -92,6 +99,7 @@ HELP);
                 'compare' => $this->doCompare($input, $output, $service),
                 'list' => $this->doList($input, $output, $service),
                 'calibrate' => $this->doCalibrate($input, $output, $service),
+                'mask-add' => $this->doMaskAdd($input, $output),
                 'golden-record' => $this->doGoldenRecord($input, $output),
                 'golden-verify' => $this->doGoldenVerify($input, $output),
                 default => $this->fail($output, "Unknown action: {$action}"),
@@ -190,23 +198,73 @@ HELP);
 
     private function doCalibrate(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
     {
-        $selectors = $service->calibrate($this->requireOption($input, 'url'), $this->curlStrategy($input), self::CALIBRATION_DELAY_MICROS);
+        $samples = max(2, $this->intOption($input, 'samples', 2));
+        $selectors = $service->calibrate(
+            $this->requireOption($input, 'url'),
+            $this->curlStrategy($input),
+            self::CALIBRATION_DELAY_MICROS,
+            $samples,
+        );
+
+        $apply = $input->getOption('apply') === true;
+        $applied = ($apply && $selectors !== [])
+            ? (new NoiseConfigWriter())->append($this->configPath($input), $selectors)
+            : [];
 
         if ($this->isJson($input)) {
-            $output->writeln($this->json(['candidates' => $selectors]));
+            $output->writeln($this->json(['candidates' => $selectors, 'applied' => $applied]));
 
             return self::SUCCESS;
         }
 
         if ($selectors === []) {
-            $output->writeln('<info>No noise detected</info>: two identical captures, nothing to mask.');
+            $output->writeln('<info>No noise detected</info>: identical captures, nothing to mask.');
 
             return self::SUCCESS;
         }
 
-        $output->writeln('<comment>Candidate noise selectors</comment> (add them to config/normalizer.json):');
+        if ($apply) {
+            $output->writeln(sprintf('<comment>Noise selectors written to %s:</comment>', $this->configPath($input)));
+            foreach ($selectors as $selector) {
+                $isNew = in_array($selector, $applied, true);
+                $output->writeln(sprintf('  %s %s%s', $isNew ? '+' : '=', $selector, $isNew ? '' : ' (already present)'));
+            }
+
+            return self::SUCCESS;
+        }
+
+        $output->writeln('<comment>Candidate noise selectors</comment> (add them to the config, or re-run with --apply):');
         foreach ($selectors as $selector) {
             $output->writeln('  - ' . $selector);
+        }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Laisse un agent déclarer SES propres sélecteurs de bruit, sans calibration :
+     * il sait qu'un widget de chat ou une bannière est du bruit → il le masque.
+     */
+    private function doMaskAdd(InputInterface $input, OutputInterface $output): int
+    {
+        $raw = $input->getOption('selector');
+        $selectors = is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
+        if ($selectors === []) {
+            throw new \InvalidArgumentException('mask-add requires at least one --selector');
+        }
+
+        $applied = (new NoiseConfigWriter())->append($this->configPath($input), $selectors);
+
+        if ($this->isJson($input)) {
+            $output->writeln($this->json(['applied' => $applied]));
+
+            return self::SUCCESS;
+        }
+
+        $output->writeln(sprintf('<comment>Noise selectors written to %s:</comment>', $this->configPath($input)));
+        foreach ($selectors as $selector) {
+            $isNew = in_array($selector, $applied, true);
+            $output->writeln(sprintf('  %s %s%s', $isNew ? '+' : '=', $selector, $isNew ? '' : ' (already present)'));
         }
 
         return self::SUCCESS;
@@ -269,6 +327,7 @@ HELP);
             new HtmlDiffer(max(1, $this->intOption($input, 'max-hunks', 40))),
             $this->stringOption($input, 'golden-dir', 'golden'),
             self::CALIBRATION_DELAY_MICROS,
+            $this->loadConfig($input),
         );
     }
 
@@ -281,9 +340,25 @@ HELP);
     {
         return new HtmlCompareService(
             new SnapshotRepository($this->stringOption($input, 'dir', self::DEFAULT_DIR)),
-            new HtmlNormalizer(NormalizerConfig::default()),
+            new HtmlNormalizer($this->loadConfig($input)),
             new HtmlDiffer(max(1, $this->intOption($input, 'max-hunks', 40))),
         );
+    }
+
+    /**
+     * Fichier de config de normalisation à utiliser : `--config` s'il est fourni,
+     * sinon celui fourni avec le paquet. Permet à un agent de pointer vers la config
+     * de SON projet (versionnée, modifiable) plutôt que celle, en lecture seule,
+     * installée sous `vendor/`.
+     */
+    private function configPath(InputInterface $input): string
+    {
+        return $this->stringOption($input, 'config', \dirname(__DIR__, 2) . '/config/normalizer.json');
+    }
+
+    private function loadConfig(InputInterface $input): NormalizerConfig
+    {
+        return NormalizerConfig::fromJsonFile($this->configPath($input));
     }
 
     private function curlStrategy(InputInterface $input): CurlCaptureStrategy
