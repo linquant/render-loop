@@ -10,7 +10,7 @@ version on the `main` branch.
 Please **do not** open a public issue for security vulnerabilities.
 
 Instead, report them privately through GitHub's
-[security advisories](https://github.com/ponera/html-compare/security/advisories/new),
+[security advisories](https://github.com/johann-nowacki/html-compare/security/advisories/new),
 or by email to the maintainers. We will acknowledge your report as quickly as we
 can and keep you informed about the fix.
 

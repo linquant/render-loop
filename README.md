@@ -1,6 +1,6 @@
 # HTML Compare
 
-[![CI](https://github.com/ponera/html-compare/actions/workflows/ci.yml/badge.svg)](https://github.com/ponera/html-compare/actions/workflows/ci.yml)
+[![CI](https://github.com/johann-nowacki/html-compare/actions/workflows/ci.yml/badge.svg)](https://github.com/johann-nowacki/html-compare/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PHP 8.2+](https://img.shields.io/badge/php-8.2%2B-777bb4.svg)](composer.json)
 
@@ -23,7 +23,7 @@ legacy codebases where a page has no test.
 ## Install
 
 ```bash
-composer require ponera/html-compare
+composer require johann-nowacki/html-compare
 ```
 
 Requires PHP 8.2+ with `ext-dom`, `ext-libxml`, `ext-json`, and `ext-curl`
