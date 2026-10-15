@@ -1,0 +1,15 @@
+{
+    "name": "shop",
+    "cases": [
+        { "id": "catalog",      "url": "http://localhost:8123/index.php" },
+        { "id": "product-aeron", "url": "http://localhost:8123/product.php?sku=aeron" },
+        { "id": "product-desk",  "url": "http://localhost:8123/product.php?sku=desk" }
+    ],
+    "mask": [
+        ".phpdebugbar",
+        ".server-time",
+        ".request-id",
+        "input[name=csrf_token]",
+        "meta[name=csrf-token]"
+    ]
+}

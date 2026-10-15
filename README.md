@@ -184,6 +184,17 @@ It is the reference for integrating the engine behind your own controller: it
 uses plain superglobals instead of a framework base controller, so you can see
 exactly which seams to wire.
 
+## Try the whole loop
+
+A runnable demo app lives under
+[`examples/demo-shop`](examples/demo-shop): a tiny PHP shop with deliberate noise
+and a script that walks (and asserts) every scenario — noise masking, a real
+edit, an indirect effect, calibrate and golden master.
+
+```bash
+bash examples/demo-shop/run-demo.sh   # from the repo root
+```
+
 ## Security
 
 The capture attaches the user's session cookie, so a free-form URL would let a
