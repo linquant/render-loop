@@ -123,4 +123,71 @@ class HtmlCompareCommandTest extends TestCase
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('--url', $tester->getDisplay());
     }
+
+    public function testMaskAddEcritLesSelecteursDansLaConfigCiblee(): void
+    {
+        $config = $this->tempConfig(['.phpdebugbar']);
+        $tester = new CommandTester(new HtmlCompareCommand());
+
+        $tester->execute([
+            '--action' => 'mask-add',
+            '--selector' => ['.chat-widget', '.cookie-banner'],
+            '--config' => $config,
+            '--dir' => $this->dir,
+            '--format' => 'json',
+        ]);
+
+        $tester->assertCommandIsSuccessful();
+        /** @var array{applied: list<string>} $out */
+        $out = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['.chat-widget', '.cookie-banner'], $out['applied']);
+
+        /** @var array{noise_selectors: list<string>} $written */
+        $written = json_decode((string) file_get_contents($config), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['.phpdebugbar', '.chat-widget', '.cookie-banner'], $written['noise_selectors']);
+    }
+
+    public function testMaskAddNeDupliquePasUnSelecteurDejaPresent(): void
+    {
+        $config = $this->tempConfig(['.phpdebugbar']);
+        $tester = new CommandTester(new HtmlCompareCommand());
+
+        $tester->execute([
+            '--action' => 'mask-add',
+            '--selector' => ['.phpdebugbar', '.new-one'],
+            '--config' => $config,
+            '--dir' => $this->dir,
+            '--format' => 'json',
+        ]);
+
+        $tester->assertCommandIsSuccessful();
+        /** @var array{applied: list<string>} $out */
+        $out = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['.new-one'], $out['applied']);
+    }
+
+    public function testMaskAddSansSelecteurEchoue(): void
+    {
+        $config = $this->tempConfig(['.phpdebugbar']);
+        $tester = new CommandTester(new HtmlCompareCommand());
+
+        $tester->execute(['--action' => 'mask-add', '--config' => $config, '--dir' => $this->dir]);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('--selector', $tester->getDisplay());
+    }
+
+    /**
+     * @param list<string> $noise
+     */
+    private function tempConfig(array $noise): string
+    {
+        $path = $this->dir . '/normalizer.json';
+        if (!is_dir($this->dir)) {
+            mkdir($this->dir, 0775, true);
+        }
+        file_put_contents($path, json_encode(['root_selector' => null, 'noise_selectors' => $noise]) . "\n");
+
+        return $path;
+    }
 }

@@ -143,17 +143,25 @@ final class HtmlCompareService
      *
      * @return list<string>
      */
-    public function calibrate(string $url, CaptureStrategy $strategy, int $delayMicros = 0): array
+    public function calibrate(string $url, CaptureStrategy $strategy, int $delayMicros = 0, int $samples = 2): array
     {
-        $first = $strategy->capture($url);
-        if ($delayMicros > 0) {
-            // Espacer les deux captures : sinon un horodatage « now » identique à
-            // la seconde près ne diffère pas et le bruit temporel passe inaperçu.
-            usleep($delayMicros);
-        }
-        $second = $strategy->capture($url);
+        // Au moins deux captures pour pouvoir les comparer ; davantage attrape du
+        // bruit plus rare (une valeur qui ne dérive pas à chaque requête).
+        $samples = max(2, $samples);
 
-        return (new NoiseCalibrator($this->normalizer))->calibrate($first, $second);
+        $captures = [];
+        for ($i = 0; $i < $samples; $i++) {
+            if ($i > 0 && $delayMicros > 0) {
+                // Espacer les captures : sinon un horodatage « now » identique à la
+                // seconde près ne diffère pas et le bruit temporel passe inaperçu.
+                usleep($delayMicros);
+            }
+            $captures[] = $strategy->capture($url);
+        }
+
+        $first = array_shift($captures);
+
+        return (new NoiseCalibrator($this->normalizer))->calibrate($first, ...$captures);
     }
 
     private function diffSnapshots(Snapshot $from, Snapshot $to): DiffResult
