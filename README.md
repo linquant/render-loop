@@ -43,6 +43,11 @@ legacy codebases where a page has no test.
 RenderLoop gives an autonomous agent a tight, cheap, high-signal feedback loop:
 *"did my edit do exactly what I intended, and nothing else?"*
 
+An agent can discover the whole CLI without parsing help text:
+`render-loop -a capabilities -f json` returns a machine-readable contract of every
+action — its required options, the shape of its JSON output, and its exit-code
+semantics.
+
 Every action takes `-f json`. The `summary` (`lines_added`, `lines_removed`,
 `hunks`, `tags_touched`, `changes`) is built for a token-budgeted reader — read
 the summary, only unfold the full diff when it is non-empty. The loop an agent
@@ -112,6 +117,7 @@ render-loop -a list [-u <url>] [-f json]       # list snapshots
 render-loop -a calibrate -u <url>              # suggest noise selectors to mask
 render-loop -a calibrate -u <url> --apply      # …and write them into the config
 render-loop -a mask-add --selector='.chat-widget'  # add your own noise selectors
+render-loop -a capabilities -f json            # machine-readable contract of every action
 cat rendered.html | render-loop -a store -u <url> -t before   # push HTML for a JS/SPA page
 ```
 
