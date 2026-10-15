@@ -4,21 +4,53 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PHP 8.2+](https://img.shields.io/badge/php-8.2%2B-777bb4.svg)](composer.json)
 
-A **render regression net** for PHP apps. Capture a page's rendered HTML, change
-your code, then re-check: only the *real* change shows — the noise (DebugBar,
+**A render feedback loop for PHP apps.** Capture a page's rendered HTML, change
+the code, then re-check — only the *real* change surfaces. The noise (DebugBar,
 `<script>`, CSRF tokens, timestamps, chrome) is masked automatically.
 
 It is a **semantic HTML diff**, not a pixel/screenshot diff, so it needs no
 headless browser for server-rendered pages and stays cheap to run — in a shell,
-in CI, or driven by an AI agent through its JSON output.
+in CI, or as the feedback signal an **AI coding agent** reads after it edits your
+code.
+
+## The loop
+
+```
+   ┌──────────────────────────────────────────────┐
+   │                                                │
+   ▼                                                │
+ capture ──▶  you / an agent  ──▶  re-check ──▶  semantic diff
+ "before"      change the code                   (noise masked)
+                                                     │
+                                   only the real change shows ─┘
+```
+
+1. **Capture** the rendered state *before* touching anything (`-t before`).
+2. **Change** the code (by hand, or let an agent do it).
+3. **Re-check** — RenderLoop re-renders, masks the noise, and shows a diff that
+   should contain **only** your intended change. Anything else is a regression.
 
 ## What it catches that `git diff` doesn't
 
 `git diff` shows *your* edit. RenderLoop compares the **rendered state** before
 and after, so it also reveals **indirect or concurrent** effects: a shared
 `include` that changed, a common function, a SQL query that empties a table, an
-edit made by someone else on the same page. That is its reason to exist on large
+edit someone else made on the same page. That is its reason to exist on large
 legacy codebases where a page has no test.
+
+## Built for AI coding agents
+
+RenderLoop gives an autonomous agent a tight, cheap, high-signal feedback loop:
+*"did my edit do exactly what I intended, and nothing else?"*
+
+Every action takes `-f json`. The `summary` (`lines_added`, `lines_removed`,
+`hunks`, `tags_touched`) is built for a token-budgeted reader — read the summary,
+only unfold the full diff when it is non-empty. The loop an agent should follow:
+
+1. `capture -t before` the page it is about to touch,
+2. make the change, and make sure the server serves the new file (watch opcache),
+3. `recheck -f json` and assert the diff is empty or contains *only* the intended
+   change.
 
 ## Install
 
@@ -30,15 +62,15 @@ Requires PHP 8.2+ with `ext-dom`, `ext-libxml`, `ext-json`, and `ext-curl`
 (curl is only needed for the fetch-based capture; the push strategy works
 without it).
 
-## CLI quickstart (human workflow)
+## CLI quickstart
 
 ```bash
 # 1. capture the state BEFORE your change
 vendor/bin/render-loop -a capture -u "http://localhost:8000/my_page.php" -t before
 
-# 2. … you modify the page …
+# 2. … you (or an agent) modify the page …
 
-# 3. re-check — the diff must contain ONLY your intended change
+# 3. re-check — the diff must contain ONLY the intended change
 vendor/bin/render-loop -a recheck -u "http://localhost:8000/my_page.php"
 ```
 
@@ -145,21 +177,12 @@ It is the reference for integrating the engine behind your own controller: it
 uses plain superglobals instead of a framework base controller, so you can see
 exactly which seams to wire.
 
-## AI / agent usage
-
-Every action takes `-f json`. The `summary` (`lines_added`, `lines_removed`,
-`hunks`, `tags_touched`) is designed for a token-budgeted reader: read the
-summary, only unfold the diff when needed. The imposed pattern for an agent is:
-capture **before** any change (`-t before`), make the change, ensure the server
-serves the new file (opcache), then **re-check** and assert the diff contains
-*only* the intended change.
-
 ## Security
 
 The capture attaches the user's session cookie, so a free-form URL would let a
 caller exfiltrate what that user sees to a third-party host. `UrlGuard` therefore
 restricts capture to an http(s) scheme and an **allow-list of hosts** (the local
-origin). Keep that list tight.
+origin). Keep that list tight. See [SECURITY.md](SECURITY.md).
 
 ## Limitations (honest)
 
@@ -167,7 +190,8 @@ origin). Keep that list tight.
   a PDF or an API stays invisible.
 - Golden master covers **only the declared inputs** and assumes **deterministic**
   rendering (frozen data + mask). For a critical computation, extract the
-  function and unit-test it; the golden **complements**, it does not replace.
+  function and unit-test it; the loop **complements** tests, it does not replace
+  them.
 
 ## Contributing
 
