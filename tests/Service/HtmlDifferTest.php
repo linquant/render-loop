@@ -90,5 +90,24 @@ class HtmlDifferTest extends TestCase
         self::assertArrayHasKey('hunks', $summary);
         self::assertArrayHasKey('truncated', $summary);
         self::assertArrayHasKey('tags_touched', $summary);
+        self::assertArrayHasKey('changes', $summary);
+    }
+
+    public function testLeResumePorteLesChangementsLocalises(): void
+    {
+        $before = '<div class="product"><span class="price">1295.00</span></div>';
+        $after = '<div class="product"><span class="price">995.00</span></div>';
+
+        $summary = (new HtmlDiffer())->diff($before, $after)->summary();
+
+        self::assertSame([
+            [
+                'kind' => 'text',
+                'selector' => 'div.product > span.price',
+                'context' => null,
+                'before' => '1295.00',
+                'after' => '995.00',
+            ],
+        ], $summary['changes']);
     }
 }

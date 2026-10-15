@@ -44,13 +44,37 @@ RenderLoop gives an autonomous agent a tight, cheap, high-signal feedback loop:
 *"did my edit do exactly what I intended, and nothing else?"*
 
 Every action takes `-f json`. The `summary` (`lines_added`, `lines_removed`,
-`hunks`, `tags_touched`) is built for a token-budgeted reader — read the summary,
-only unfold the full diff when it is non-empty. The loop an agent should follow:
+`hunks`, `tags_touched`, `changes`) is built for a token-budgeted reader — read
+the summary, only unfold the full diff when it is non-empty. The loop an agent
+should follow:
 
 1. `capture -t before` the page it is about to touch,
 2. make the change, and make sure the server serves the new file (watch opcache),
 3. `recheck -f json` and assert the diff is empty or contains *only* the intended
    change — read `summary` first, unfold the full diff only when it is non-empty.
+
+The `changes` array is the **semantic** part of that summary: one entry per
+localized change, so a reader never has to parse the unified diff to know what
+happened.
+
+```json
+"changes": [
+  {"kind": "text", "selector": "article.product-detail > p.price",
+   "context": "Aeron Chair", "before": "$1295.00", "after": "$995.00"}
+]
+```
+
+- `selector` — a best-effort CSS path to the element, degrading from `#id` to
+  `tag.class` to a positional `tag:nth-of-type(n)`.
+- `context` — the nearest heading / label text, the **anchor that stays readable
+  on legacy markup** with no id or class (the `<h1>`, a `<th>`, the previous
+  `<td>` of a key/value row). `null` when nothing nearby qualifies.
+- `kind` — `text` (content changed), `added` or `removed` (a node appeared or
+  disappeared), each with the relevant `before` / `after`.
+
+`changes` is an enrichment, never a replacement: the unified `diff` is always the
+floor. On a structural insertion that cascades the positional paths, `changes`
+comes back empty and you read the diff — see the limitations below.
 
 Note the exit code: `recheck` (and `compare`) return `0` whether or not there is
 a diff, so an agent should decide from the JSON `summary` (`lines_added` /
@@ -210,6 +234,10 @@ origin). Keep that list tight. See [SECURITY.md](SECURITY.md).
   rendering (frozen data + mask). For a critical computation, extract the
   function and unit-test it; the loop **complements** tests, it does not replace
   them.
+- The `changes` summary is **best-effort** on messy markup: with no id or class
+  the `selector` is a positional path, and a structural insertion that shifts
+  those paths makes `changes` fall back to empty. The unified `diff` is the
+  signal you can always rely on; `changes` only ever adds to it.
 
 ## Contributing
 

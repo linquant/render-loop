@@ -7,6 +7,7 @@ namespace RenderLoop\Command;
 use RenderLoop\Model\GoldenManifest;
 use RenderLoop\Model\Snapshot;
 use RenderLoop\Model\SnapshotRepository;
+use RenderLoop\Service\Change;
 use RenderLoop\Service\CurlCaptureStrategy;
 use RenderLoop\Service\DiffResult;
 use RenderLoop\Service\GitRevision;
@@ -331,10 +332,38 @@ HELP);
             $diff->truncated ? ' (truncated)' : '',
             $tags === '' ? '—' : $tags,
         ));
+        $this->writeChanges($output, $diff->changes);
         $output->writeln('');
         $this->writeUnifiedDiff($output, $diff->unifiedDiff);
 
         return $diffStatus;
+    }
+
+    /**
+     * Localized changes, before the raw diff: the semantic signal (which selector
+     * changed, next to which label, from what to what) for a reader who should not
+     * have to parse the unified diff. Empty when the change cascaded (see
+     * {@see Change}) — the diff below stays the floor.
+     *
+     * @param list<Change> $changes
+     */
+    private function writeChanges(OutputInterface $output, array $changes): void
+    {
+        if ($changes === []) {
+            return;
+        }
+
+        $output->writeln('Changes:');
+        foreach ($changes as $change) {
+            $where = $change->context !== null ? "{$change->selector} ({$change->context})" : $change->selector;
+            $what = match ($change->kind) {
+                Change::KIND_TEXT => sprintf('%s → %s', (string) $change->before, (string) $change->after),
+                Change::KIND_ADDED => sprintf('+ %s', (string) $change->after),
+                Change::KIND_REMOVED => sprintf('- %s', (string) $change->before),
+                default => '',
+            };
+            $output->writeln(sprintf('  • %s: %s', $where, $what));
+        }
     }
 
     /**
