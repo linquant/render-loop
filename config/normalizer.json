@@ -1,0 +1,12 @@
+{
+    "root_selector": null,
+    "noise_selectors": [
+        ".phpdebugbar",
+        "#phpdebugbar",
+        ".phpdebugbar-openhandler-overlay",
+        "input[name=csrf_token]",
+        "input[name=_token]",
+        "input[name=__RequestVerificationToken]",
+        "meta[name=csrf-token]"
+    ]
+}

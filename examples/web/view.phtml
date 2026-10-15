@@ -1,0 +1,112 @@
+<?php
+/**
+ * Shell page for the web example. All the content (snapshots, diff) is loaded
+ * afterwards over AJAX by assets/html-compare.js — this template is only the shell.
+ */
+$host = htmlspecialchars($_SERVER['HTTP_HOST'] ?? 'localhost', ENT_QUOTES);
+?>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTML Compare</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="assets/html-compare.css">
+</head>
+<body>
+<div class="container-fluid mt-3" id="html-compare">
+    <h1><i class="fas fa-code-compare"></i> HTML Compare</h1>
+    <p class="text-muted small mb-3">Capture a page's state, modify it, then re-check: only the real change shows (the noise — DebugBar, scripts, tokens — is masked). <a href="#hc-doc"><i class="fas fa-circle-info"></i> How does it work?</a></p>
+
+    <!-- 1. Choose the page -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <label class="form-label mb-1">Page to watch <span class="text-muted">(same origin)</span></label>
+            <div class="input-group">
+                <input type="text" id="hc-url" class="form-control" placeholder="http://<?= $host ?>/my_page.php">
+                <button id="hc-open" class="btn btn-primary"><i class="fas fa-folder-open"></i> Open</button>
+            </div>
+            <div id="hc-flash" class="small mt-2"></div>
+        </div>
+    </div>
+
+    <!-- 2. Page context + actions -->
+    <div class="card mb-3 d-none" id="hc-context">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                <div>
+                    <div class="small text-muted">Open page</div>
+                    <div id="hc-current-url" class="fw-bold"></div>
+                    <div class="small mt-1">Baseline: <span id="hc-baseline" class="badge bg-success">none</span></div>
+                </div>
+                <div class="text-end">
+                    <div class="input-group input-group-sm mb-2 ms-auto" style="max-width:280px">
+                        <span class="input-group-text">Label</span>
+                        <input type="text" id="hc-tag" class="form-control" placeholder="before">
+                    </div>
+                    <button id="hc-capture" class="btn btn-primary"><i class="fas fa-camera"></i> Capture a state</button>
+                    <button id="hc-recheck" class="btn btn-outline-primary"><i class="fas fa-rotate"></i> Re-check</button>
+                </div>
+            </div>
+            <div class="small text-muted mt-2 border-top pt-2">
+                <strong>1.</strong> Capture the state <em>before</em> &nbsp;·&nbsp; <strong>2.</strong> Modify the page &nbsp;·&nbsp; <strong>3.</strong> Re-check (compares to the baseline)
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Diff result -->
+    <div class="card mb-3 d-none" id="hc-result">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span id="hc-result-title">Differences</span>
+            <span id="hc-result-summary" class="badge bg-secondary"></span>
+        </div>
+        <div class="card-body p-0">
+            <pre id="hc-diff" class="hc-diff m-0 p-3"></pre>
+        </div>
+    </div>
+
+    <!-- Snapshot HTML preview -->
+    <div class="card mb-3 d-none" id="hc-view">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span id="hc-view-title">Captured HTML (normalized)</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="hc-view-close">Close</button>
+        </div>
+        <div class="card-body p-0">
+            <pre id="hc-view-pre" class="hc-diff m-0 p-3"></pre>
+        </div>
+    </div>
+
+    <!-- 4. Page history -->
+    <div class="card mb-3 d-none" id="hc-history">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>History of this page (<span id="hc-count">0</span>)</span>
+            <button id="hc-compare" class="btn btn-sm btn-outline-primary" disabled>Compare the 2 checked</button>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead><tr><th style="width:2.5rem"></th><th>Date</th><th>Label</th><th class="text-end">Actions</th></tr></thead>
+                <tbody id="hc-captures-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mt-4" id="hc-doc">
+        <div class="card-body">
+            <h5 class="h6"><i class="fas fa-circle-info"></i> How it works</h5>
+            <p class="text-muted small mb-0">
+                This tool records the <em>rendered</em> HTML state of a page at a given moment (a "snapshot"), then compares two states
+                to surface only the real changes — the noise (DebugBar, scripts, CSRF tokens, timestamps) being masked automatically.
+                Typical use: <strong>open</strong> the page to watch, click <strong>Capture a state</strong> <em>before</em> your change (label "before"),
+                make your change, then <strong>Re-check</strong>: the diff shows only what changed relative to the baseline.
+                You can also check two snapshots from the history to compare them, show a snapshot's normalized HTML (<em>view</em>),
+                set it as the baseline, or delete it. Snapshots are kept per page.
+                For command-line and AI/agent usage, see the project README.
+            </p>
+        </div>
+    </div>
+</div>
+<script src="assets/html-compare.js"></script>
+</body>
+</html>

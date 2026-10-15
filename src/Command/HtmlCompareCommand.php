@@ -1,0 +1,399 @@
+<?php
+
+declare(strict_types=1);
+
+namespace HtmlCompare\Command;
+
+use HtmlCompare\Model\GoldenManifest;
+use HtmlCompare\Model\Snapshot;
+use HtmlCompare\Model\SnapshotRepository;
+use HtmlCompare\Service\CurlCaptureStrategy;
+use HtmlCompare\Service\DiffResult;
+use HtmlCompare\Service\GitRevision;
+use HtmlCompare\Service\GoldenMaster;
+use HtmlCompare\Service\HtmlCompareService;
+use HtmlCompare\Service\HtmlDiffer;
+use HtmlCompare\Service\HtmlNormalizer;
+use HtmlCompare\Service\NormalizerConfig;
+use HtmlCompare\Service\PushedHtmlStrategy;
+use HtmlCompare\Service\UrlGuard;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\Table;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+
+#[AsCommand(
+    name: 'html-compare',
+    description: 'Capture and compare the HTML state of pages (render regression net)',
+)]
+class HtmlCompareCommand extends Command
+{
+    private const DEFAULT_DIR = '.html-compare/snapshots';
+
+    // Delay between the two calibration captures: crosses a one-second boundary
+    // so that "now" timestamps (temporal noise) actually differ and get caught.
+    private const CALIBRATION_DELAY_MICROS = 1_100_000;
+
+    protected function configure(): void
+    {
+        $this
+            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | golden-record | golden-verify', 'recheck')
+            ->addOption('suite', null, InputOption::VALUE_REQUIRED, 'Golden suite name (manifest <golden-dir>/<suite>.json)')
+            ->addOption('golden-dir', null, InputOption::VALUE_REQUIRED, 'Golden suites directory', 'golden')
+            ->addOption('url', 'u', InputOption::VALUE_REQUIRED, 'Page URL')
+            ->addOption('tag', 't', InputOption::VALUE_REQUIRED, 'Snapshot label (e.g. before)')
+            ->addOption('from', null, InputOption::VALUE_REQUIRED, 'Baseline snapshot id (compare)')
+            ->addOption('to', null, InputOption::VALUE_REQUIRED, 'Current snapshot id (compare)')
+            ->addOption('allow-host', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Host allowed in addition to localhost', [])
+            ->addOption('cookie-name', null, InputOption::VALUE_REQUIRED, 'Session cookie name used for authenticated capture', 'PHPSESSID')
+            ->addOption('dir', 'd', InputOption::VALUE_REQUIRED, 'Snapshot storage directory', self::DEFAULT_DIR)
+            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'table | json', 'table')
+            ->addOption('max-hunks', null, InputOption::VALUE_REQUIRED, 'Maximum number of hunks displayed', '40')
+            ->setHelp(<<<'HELP'
+Detects the changes of a web page between two moments.
+
+<info>Human workflow:</info>
+  1. <comment>html-compare -a capture -u "http://localhost/page.php" -t before</comment>
+  2. (you modify the page)
+  3. <comment>html-compare -a recheck -u "http://localhost/page.php"</comment>
+
+<info>JS/SPA pages</info> (the rendered HTML is pushed via STDIN by a headless browser):
+  <comment>cat rendered.html | html-compare -a store -u "http://localhost/app" -t before</comment>
+
+<info>Other actions:</info>
+  compare --from=<id> --to=<id>   diff between two precise snapshots
+  list [--url=...]                list snapshots
+  calibrate --url=...             capture the page twice and suggest the noise selectors to mask
+
+<info>Golden master (legacy pages without tests):</info>
+  golden-record --suite=page   pin the current rendered output of the cases in golden/page.json
+  golden-verify --suite=page   re-capture and compare to the golden (exit != 0 on render regression)
+
+<info>Authenticated pages:</info> pass the session cookie value via the HTMLCOMPARE_COOKIE
+environment variable (never as a CLI argument, which would be visible in `ps`):
+  <comment>HTMLCOMPARE_COOKIE=<value> html-compare -a capture -u "http://localhost/page.php"</comment>
+HELP);
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        try {
+            $service = $this->buildService($input);
+            $action = (string) $input->getOption('action');
+
+            return match ($action) {
+                'capture' => $this->doCapture($input, $output, $service),
+                'store' => $this->doStore($input, $output, $service),
+                'recheck' => $this->doRecheck($input, $output, $service),
+                'compare' => $this->doCompare($input, $output, $service),
+                'list' => $this->doList($input, $output, $service),
+                'calibrate' => $this->doCalibrate($input, $output, $service),
+                'golden-record' => $this->doGoldenRecord($input, $output),
+                'golden-verify' => $this->doGoldenVerify($input, $output),
+                default => $this->fail($output, "Unknown action: {$action}"),
+            };
+        } catch (\InvalidArgumentException | \RuntimeException $e) {
+            return $this->fail($output, $e->getMessage());
+        }
+    }
+
+    private function doCapture(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
+    {
+        $snapshot = $service->capture(
+            $this->requireOption($input, 'url'),
+            $this->curlStrategy($input),
+            $this->optionalString($input, 'tag'),
+            GitRevision::current(),
+        );
+        $output->writeln("<info>Snapshot saved</info>: {$snapshot->id()}");
+
+        return self::SUCCESS;
+    }
+
+    private function doStore(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
+    {
+        $html = stream_get_contents(STDIN);
+        if (!is_string($html) || trim($html) === '') {
+            return $this->fail($output, 'No HTML received on STDIN (expected: the rendered HTML of the page).');
+        }
+
+        $snapshot = $service->capture(
+            $this->requireOption($input, 'url'),
+            new PushedHtmlStrategy($html),
+            $this->optionalString($input, 'tag') ?? 'store',
+            GitRevision::current(),
+        );
+        $output->writeln("<info>Pushed HTML saved</info>: {$snapshot->id()}");
+
+        return self::SUCCESS;
+    }
+
+    private function doRecheck(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
+    {
+        $result = $service->recheck(
+            $this->requireOption($input, 'url'),
+            $this->curlStrategy($input),
+            GitRevision::current(),
+        );
+
+        return $this->renderDiff($input, $output, $result->diff, "{$result->baseline->id()} -> {$result->current->id()}");
+    }
+
+    private function doCompare(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
+    {
+        $from = $this->requireOption($input, 'from');
+        $to = $this->requireOption($input, 'to');
+
+        return $this->renderDiff($input, $output, $service->compareSnapshots($from, $to), "{$from} -> {$to}");
+    }
+
+    private function doList(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
+    {
+        $snapshots = $service->listSnapshots($this->optionalString($input, 'url'));
+
+        if ($snapshots === []) {
+            $output->writeln('<comment>No snapshot.</comment>');
+
+            return self::SUCCESS;
+        }
+
+        if ($this->isJson($input)) {
+            $rows = array_map(static fn(Snapshot $s): array => [
+                'id' => $s->id(),
+                'url' => $s->url,
+                'tag' => $s->tag,
+                'datetime' => date('Y-m-d H:i:s', $s->timestamp),
+            ], $snapshots);
+            $output->writeln($this->json($rows));
+
+            return self::SUCCESS;
+        }
+
+        $table = new Table($output);
+        $table->setHeaders(['Id', 'Date', 'Tag', 'URL']);
+        foreach ($snapshots as $snapshot) {
+            $table->addRow([
+                $snapshot->id(),
+                date('Y-m-d H:i:s', $snapshot->timestamp),
+                $snapshot->tag ?? '-',
+                $this->truncate($snapshot->url, 50),
+            ]);
+        }
+        $table->render();
+
+        return self::SUCCESS;
+    }
+
+    private function doCalibrate(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
+    {
+        $selectors = $service->calibrate($this->requireOption($input, 'url'), $this->curlStrategy($input), self::CALIBRATION_DELAY_MICROS);
+
+        if ($this->isJson($input)) {
+            $output->writeln($this->json(['candidates' => $selectors]));
+
+            return self::SUCCESS;
+        }
+
+        if ($selectors === []) {
+            $output->writeln('<info>No noise detected</info>: two identical captures, nothing to mask.');
+
+            return self::SUCCESS;
+        }
+
+        $output->writeln('<comment>Candidate noise selectors</comment> (add them to config/normalizer.json):');
+        foreach ($selectors as $selector) {
+            $output->writeln('  - ' . $selector);
+        }
+
+        return self::SUCCESS;
+    }
+
+    private function doGoldenRecord(InputInterface $input, OutputInterface $output): int
+    {
+        $manifest = GoldenManifest::fromJsonFile($this->manifestPath($input));
+        $this->goldenMaster($input)->record($manifest, $this->curlStrategy($input));
+
+        $output->writeln(sprintf(
+            '<info>Golden recorded</info>: %d case(s), noise mask = %d selector(s). Remember to commit the golden directory.',
+            count($manifest->cases()),
+            count($manifest->mask()),
+        ));
+
+        return self::SUCCESS;
+    }
+
+    private function doGoldenVerify(InputInterface $input, OutputInterface $output): int
+    {
+        $manifest = GoldenManifest::fromJsonFile($this->manifestPath($input));
+        $results = $this->goldenMaster($input)->verify($manifest, $this->curlStrategy($input));
+
+        $changed = 0;
+        $missing = 0;
+        foreach ($results as $result) {
+            switch ($result->status) {
+                case 'ok':
+                    $output->writeln("<info>OK</info> {$result->id}");
+                    break;
+                case 'missing':
+                    $missing++;
+                    $output->writeln("<comment>? {$result->id}</comment> — golden missing (run golden-record)");
+                    break;
+                default:
+                    $changed++;
+                    $summary = $result->diff?->summary() ?? [];
+                    $output->writeln("<error>CHANGED {$result->id}</error> — " . json_encode($summary, JSON_UNESCAPED_UNICODE));
+                    if ($result->diff !== null) {
+                        $this->writeUnifiedDiff($output, $result->diff->unifiedDiff);
+                    }
+            }
+        }
+
+        if ($changed === 0 && $missing === 0) {
+            $output->writeln('<info>Golden OK</info>: no render regression.');
+
+            return self::SUCCESS;
+        }
+
+        $output->writeln("<error>Golden regression</error>: {$changed} changed case(s), {$missing} missing golden(s).");
+
+        return self::FAILURE;
+    }
+
+    private function goldenMaster(InputInterface $input): GoldenMaster
+    {
+        return new GoldenMaster(
+            new HtmlDiffer(max(1, (int) $input->getOption('max-hunks'))),
+            (string) $input->getOption('golden-dir'),
+            self::CALIBRATION_DELAY_MICROS,
+        );
+    }
+
+    private function manifestPath(InputInterface $input): string
+    {
+        return rtrim((string) $input->getOption('golden-dir'), '/') . '/' . $this->requireOption($input, 'suite') . '.json';
+    }
+
+    private function buildService(InputInterface $input): HtmlCompareService
+    {
+        return new HtmlCompareService(
+            new SnapshotRepository((string) $input->getOption('dir')),
+            new HtmlNormalizer(NormalizerConfig::default()),
+            new HtmlDiffer(max(1, (int) $input->getOption('max-hunks'))),
+        );
+    }
+
+    private function curlStrategy(InputInterface $input): CurlCaptureStrategy
+    {
+        /** @var list<string> $extra */
+        $extra = array_map('strval', (array) $input->getOption('allow-host'));
+        $hosts = array_merge(['localhost', '127.0.0.1'], $extra);
+
+        // Session cookie read from the environment (never from a CLI argument,
+        // which would be visible in `ps` / the shell history).
+        $cookie = getenv('HTMLCOMPARE_COOKIE');
+        $cookie = is_string($cookie) && $cookie !== '' ? $cookie : null;
+        $cookieName = $this->optionalString($input, 'cookie-name') ?? 'PHPSESSID';
+
+        return new CurlCaptureStrategy(new UrlGuard($hosts), $cookie, $cookieName);
+    }
+
+    private function renderDiff(InputInterface $input, OutputInterface $output, DiffResult $diff, string $header): int
+    {
+        if ($this->isJson($input)) {
+            $output->writeln($this->json(['summary' => $diff->summary(), 'diff' => $diff->unifiedDiff]));
+
+            return self::SUCCESS;
+        }
+
+        if ($diff->isIdentical()) {
+            $output->writeln("<info>No difference</info> ({$header})");
+
+            return self::SUCCESS;
+        }
+
+        $tags = implode(', ', $diff->tagsTouched);
+        $output->writeln("<comment>{$header}</comment>");
+        $output->writeln(sprintf(
+            'Summary: +%d / -%d, %d hunk(s)%s, tags: %s',
+            $diff->linesAdded,
+            $diff->linesRemoved,
+            $diff->hunks,
+            $diff->truncated ? ' (truncated)' : '',
+            $tags === '' ? '—' : $tags,
+        ));
+        $output->writeln('');
+        $this->writeUnifiedDiff($output, $diff->unifiedDiff);
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * The diff contains HTML (`<div>`…): we write it raw so the Symfony formatter
+     * does not mistake it for style tags, and we colorize by hand in ANSI only if
+     * the output supports it.
+     */
+    private function writeUnifiedDiff(OutputInterface $output, string $diff): void
+    {
+        $decorated = $output->isDecorated();
+        foreach (explode("\n", $diff) as $line) {
+            $rendered = $line;
+            if ($decorated && $line !== '') {
+                $rendered = match ($line[0]) {
+                    '+' => "\033[32m{$line}\033[0m",
+                    '-' => "\033[31m{$line}\033[0m",
+                    '@' => "\033[36m{$line}\033[0m",
+                    default => $line,
+                };
+            }
+            $output->writeln($rendered, OutputInterface::OUTPUT_RAW);
+        }
+    }
+
+    private function requireOption(InputInterface $input, string $name): string
+    {
+        $value = $this->optionalString($input, $name);
+        if ($value === null) {
+            throw new \InvalidArgumentException("Option --{$name} is required.");
+        }
+
+        return $value;
+    }
+
+    private function optionalString(InputInterface $input, string $name): ?string
+    {
+        $value = $input->getOption($name);
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function truncate(string $value, int $max): string
+    {
+        if (mb_strlen($value) <= $max) {
+            return $value;
+        }
+
+        return mb_substr($value, 0, max(0, $max - 1)) . '…';
+    }
+
+    private function isJson(InputInterface $input): bool
+    {
+        return (string) $input->getOption('format') === 'json';
+    }
+
+    /**
+     * @param array<mixed> $data
+     */
+    private function json(array $data): string
+    {
+        return json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+    }
+
+    private function fail(OutputInterface $output, string $message): int
+    {
+        $output->writeln("<error>{$message}</error>");
+
+        return self::FAILURE;
+    }
+}

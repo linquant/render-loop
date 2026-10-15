@@ -1,0 +1,14 @@
+.hc-diff {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 60vh;
+    overflow: auto;
+    white-space: pre;
+}
+
+.hc-line { display: block; }
+.hc-add { color: #4ec9b0; }
+.hc-del { color: #f48771; }
+.hc-hunk { color: #569cd6; }
