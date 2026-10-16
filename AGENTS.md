@@ -27,7 +27,14 @@ never shows.
    (watch opcache / build steps) before re-checking.
 4. **Re-check** — `render-loop -a recheck -u <url> -f json`. The diff should
    contain **only** your intended change. Anything else is a regression.
-5. **JS/SPA pages** — render the HTML elsewhere and push it:
+5. **Assert the blast radius** — rather than eyeballing the diff, declare the only
+   selector your edit may touch: `render-loop -a recheck -u <url>
+   --expect-selector='.price' -f json` (repeatable). You get a binary verdict
+   (`assertion.satisfied`) and, on a leak, the isolated out-of-scope diff plus a
+   non-zero exit. Declaring the intent **before** you see the diff is what stops
+   you from rationalizing an unexpected change away. This is a **per-edit** guard,
+   not a frozen regression net — that is golden master (below).
+6. **JS/SPA pages** — render the HTML elsewhere and push it:
    `cat rendered.html | render-loop -a store -u <url> -t before`.
 
 ### Reading the output
@@ -55,6 +62,11 @@ never shows.
 - **It covers rendering only**: a DB write, an export, a PDF or an API response
   stays invisible. For a critical computation, extract the function and unit-test
   it — the loop **complements** tests, it does not replace them.
+- **`--expect-selector` is a per-edit guard, not a frozen regression net** (that is
+  `golden-record`/`golden-verify`). `satisfied: true` only means no visible change
+  leaked outside the selector — not that the edit is correct, nor that non-rendered
+  effects are fine. A wrong or missing selector surfaces as `satisfied: false` with
+  "matched no element", never a false green.
 - **Authenticated pages**: pass the session cookie value via the
   `RENDERLOOP_COOKIE` environment variable, never as a CLI argument (it would be
   visible in `ps`).

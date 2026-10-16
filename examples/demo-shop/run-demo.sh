@@ -29,6 +29,9 @@ die()  { printf '   \033[1;31m✗ %s\033[0m\n' "$*"; exit 1; }
 
 capture() { "${RL[@]}" -d "$SNAP" -a capture -u "$1" -t before >/dev/null; }
 recheck() { "${RL[@]}" -d "$SNAP" -a recheck -u "$1" -f json; }
+# recheck with a scope assertion: the agent declares the selector its edit may
+# touch; the command exits non-zero when any change escapes it. (--expect-selector)
+assert_scope() { "${RL[@]}" -d "$SNAP" -a recheck -u "$1" --expect-selector="$2" -f json; }
 
 # Toggle the two demo noise selectors in config/normalizer.json.
 mask_off() { php -r '$f=$argv[1];$d=json_decode(file_get_contents($f),true);$d["noise_selectors"]=array_values(array_filter($d["noise_selectors"],fn($s)=>!in_array($s,[".server-time",".request-id"],true)));file_put_contents($f,json_encode($d,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");' "$CONFIG"; }
@@ -136,6 +139,38 @@ if gold -a golden-verify --suite=shop >/dev/null 2>&1; then
     restore_app; die "golden-verify MISSED a real regression"
 else
     ok "golden-verify RED on a real regression (exit != 0, as it should)"
+fi
+restore_app
+
+# ------------------------------------------------------------------------------
+say "Scenario 6 — scope assertion (--expect-selector): only what I declared may move"
+# The agent DECLARES its intent BEFORE seeing the diff, and RenderLoop returns a
+# binary verdict. This is the PHPUnit idea ("assert, don't eyeball") applied to a
+# render: a change escaping the declared selector is a failure, with the leak
+# isolated in `out_of_scope`. It is NOT a frozen regression net (that is golden
+# master, scenario 5) — it is a per-edit blast-radius guard.
+
+# (a) a confined edit stays GREEN: the price change lands only inside .price
+capture "$BASE/product.php?sku=aeron"
+sed -i "s/'price' => '1295.00'/'price' => '995.00'/" "$APP"/_data.php
+OUT=$(assert_scope "$BASE/product.php?sku=aeron" '.price')   # exits 0 when confined
+if echo "$OUT" | grep -q '"satisfied": true'; then
+    ok "assertion GREEN: the price edit is confined to .price"
+else
+    echo "$OUT"; die "assertion should have held for .price"
+fi
+restore_app
+
+# (b) a leak turns it RED: renaming the product also moves the page <title>,
+#     which sits OUTSIDE .product-detail — a blast radius the agent did not expect.
+capture "$BASE/product.php?sku=aeron"
+sed -i "s/'Aeron Chair'/'Aeron Pro Chair'/" "$APP"/_data.php
+if OUT=$(assert_scope "$BASE/product.php?sku=aeron" '.product-detail'); then
+    echo "$OUT"; die "assertion should have FAILED: the <title> moved outside .product-detail"
+elif echo "$OUT" | grep -q '"satisfied": false' && echo "$OUT" | grep -q 'Aeron Pro Chair'; then
+    ok "assertion RED: out-of-scope <title> change surfaced (exit != 0)"
+else
+    echo "$OUT"; die "expected satisfied:false with the out-of-scope leak"
 fi
 restore_app
 

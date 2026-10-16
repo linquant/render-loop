@@ -49,6 +49,21 @@ final class NormalizerConfig
         return self::fromJsonFile(__DIR__ . '/../../config/normalizer.json');
     }
 
+    /**
+     * Même config, avec des sélecteurs de bruit supplémentaires (dédupliqués). Sert
+     * à l'assertion de portée : on masque TEMPORAIREMENT la zone attendue pour voir
+     * s'il reste un changement ailleurs. Immuable : la config d'origine est intacte.
+     *
+     * @param list<string> $selectors
+     */
+    public function withAdditionalNoise(array $selectors): self
+    {
+        return new self(
+            $this->rootSelector,
+            array_values(array_unique(array_merge($this->noiseSelectors, $selectors))),
+        );
+    }
+
     public function rootSelector(): ?string
     {
         return $this->rootSelector;

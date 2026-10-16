@@ -93,7 +93,9 @@ should follow:
 1. `capture -t before` the page it is about to touch,
 2. make the change, and make sure the server serves the new file (watch opcache),
 3. `recheck -f json` and assert the diff is empty or contains *only* the intended
-   change — read `summary` first, unfold the full diff only when it is non-empty.
+   change — read `summary` first, unfold the full diff only when it is non-empty,
+4. or go further and let RenderLoop make the call: declare the scope with
+   `--expect-selector` and branch on the `assertion` verdict (see below).
 
 The `changes` array is the **semantic** part of that summary: one entry per
 localized change, so a reader never has to parse the unified diff to know what
@@ -124,6 +126,38 @@ a diff, so an agent should decide from the JSON `summary` (`lines_added` /
 `--exit-code`: the command then returns non-zero when the diff is non-empty, like
 `git diff --exit-code`. (`golden-verify` already exits non-zero on a regression.)
 
+### 🎯 Assert the blast radius
+
+Rather than eyeballing the diff, an agent can **declare the only selector its edit
+may touch** and get a binary verdict. `recheck` and `compare` accept
+`--expect-selector` (repeatable); the command exits non-zero when any rendered
+change escapes that scope, and the JSON gains an `assertion` block that isolates
+the leak:
+
+```bash
+render-loop -a recheck -u "http://localhost/page.php" --expect-selector='.price' -f json
+```
+
+```json
+"assertion": {
+  "expected_selectors": [".price"],
+  "satisfied": false,
+  "inside_scope_changed": true,
+  "reason": "1 change(s) outside the expected scope",
+  "out_of_scope": { "lines_added": 1, "lines_removed": 1, "hunks": 1, "diff": "…" }
+}
+```
+
+Declaring the intent *before* seeing the diff is what stops an agent from
+rationalizing an unexpected change away — the PHPUnit *"assert, don't eyeball"*
+idea applied to a render. It is a **per-edit** blast-radius guard, not a frozen
+regression net (that is golden master, below). `satisfied: true` only means
+nothing visible leaked outside the selector — not that the edit is correct, and
+not that non-rendered effects are fine; a wrong or missing selector surfaces as
+`satisfied: false` (*"matched no element"*), never a false green. It is built by
+temporarily masking the expected selectors and re-diffing, so it leans on the
+reliable unified diff, and masking stays **selector-based**.
+
 ## 📦 Install
 
 ```bash
@@ -150,6 +184,7 @@ Other actions:
 
 ```bash
 render-loop -a compare --from=<id> --to=<id>   # diff two precise snapshots
+render-loop -a recheck -u <url> --expect-selector='.price'  # assert the change stays inside .price (exit != 0 if it leaks)
 render-loop -a list [-u <url>] [-f json]       # list snapshots
 render-loop -a calibrate -u <url>              # suggest noise selectors to mask
 render-loop -a calibrate -u <url> --apply      # …and write them into the config
@@ -168,7 +203,9 @@ file — point it at **your project's** config, not the one bundled under `vendo
 default `PHPSESSID`), `-f/--format` (`table`|`json`), `--max-hunks`, `--samples`
 (number of calibration captures, `>= 2`), `--apply` (calibrate writes its findings
 to the config), `--selector` (`mask-add`, repeatable), `--exit-code` (exit non-zero
-when the diff is non-empty, like `git diff --exit-code`).
+when the diff is non-empty, like `git diff --exit-code`), `--expect-selector`
+(`recheck`/`compare`, repeatable — assert the change stays within this selector;
+exit non-zero and report the leak otherwise).
 
 **Authenticated pages**: pass the session cookie *value* via the
 `RENDERLOOP_COOKIE` environment variable — never as a CLI argument, which would
@@ -290,7 +327,8 @@ exactly which seams to wire.
 A runnable demo app lives under
 [`examples/demo-shop`](examples/demo-shop): a tiny PHP shop with deliberate noise
 and a script that walks (and asserts) every scenario — noise masking, a real
-edit, an indirect effect, calibrate and golden master.
+edit, an indirect effect, calibrate, golden master, and a scope assertion
+(`--expect-selector`: green when confined, red when a change leaks out).
 
 ```bash
 bash examples/demo-shop/run-demo.sh   # from the repo root
