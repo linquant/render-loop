@@ -18,6 +18,8 @@ use RenderLoop\Service\HtmlNormalizer;
 use RenderLoop\Service\NoiseConfigWriter;
 use RenderLoop\Service\NormalizerConfig;
 use RenderLoop\Service\PushedHtmlStrategy;
+use RenderLoop\Service\ScopeAssertion;
+use RenderLoop\Service\ScopeAssertionChecker;
 use RenderLoop\Service\UrlGuard;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -58,6 +60,7 @@ class HtmlCompareCommand extends Command
             ->addOption('samples', null, InputOption::VALUE_REQUIRED, 'Number of calibration captures (>= 2); more catches slower-moving noise', '2')
             ->addOption('apply', null, InputOption::VALUE_NONE, 'calibrate: append the discovered selectors straight into the normalizer config')
             ->addOption('selector', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'mask-add: a noise selector to ignore (repeatable)', [])
+            ->addOption('expect-selector', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'recheck/compare: assert the change stays within this selector; exit non-zero (and report the leak) on any change outside it (repeatable)', [])
             ->setHelp(<<<'HELP'
 Detects the changes of a web page between two moments.
 
@@ -65,6 +68,10 @@ Detects the changes of a web page between two moments.
   1. <comment>render-loop -a capture -u "http://localhost/page.php" -t before</comment>
   2. (you modify the page)
   3. <comment>render-loop -a recheck -u "http://localhost/page.php"</comment>
+
+<info>Assert the blast radius</info> (declare the only selector your edit may touch;
+exit != 0 if anything changes outside it, with the leak reported):
+  <comment>render-loop -a recheck -u "http://localhost/page.php" --expect-selector=".price"</comment>
 
 <info>JS/SPA pages</info> (the rendered HTML is pushed via STDIN by a headless browser):
   <comment>cat rendered.html | render-loop -a store -u "http://localhost/app" -t before</comment>
@@ -152,7 +159,9 @@ HELP);
             GitRevision::current(),
         );
 
-        return $this->renderDiff($input, $output, $result->diff, "{$result->baseline->id()} -> {$result->current->id()}");
+        $assertion = $this->scopeAssertion($input, $result->baseline->html, $result->current->html);
+
+        return $this->renderDiff($input, $output, $result->diff, "{$result->baseline->id()} -> {$result->current->id()}", $assertion);
     }
 
     private function doCompare(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
@@ -160,7 +169,16 @@ HELP);
         $from = $this->requireOption($input, 'from');
         $to = $this->requireOption($input, 'to');
 
-        return $this->renderDiff($input, $output, $service->compareSnapshots($from, $to), "{$from} -> {$to}");
+        $diff = $service->compareSnapshots($from, $to);
+
+        // compareSnapshots a déjà levé si une capture manque : les deux existent ici.
+        $fromSnapshot = $service->getSnapshot($from);
+        $toSnapshot = $service->getSnapshot($to);
+        $assertion = ($fromSnapshot !== null && $toSnapshot !== null)
+            ? $this->scopeAssertion($input, $fromSnapshot->html, $toSnapshot->html)
+            : null;
+
+        return $this->renderDiff($input, $output, $diff, "{$from} -> {$to}", $assertion);
     }
 
     private function doList(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
@@ -306,7 +324,7 @@ HELP);
     private function capabilitiesManifest(): array
     {
         $capture = ['url', 'tag', 'dir', 'config', 'allow-host', 'cookie-name'];
-        $diffOut = 'with -f json: {"summary":{"lines_added":int,"lines_removed":int,"hunks":int,"truncated":bool,"tags_touched":[string],"changes":[{"kind":"text|added|removed","selector":string,"context":string|null,"before":string|null,"after":string|null}]},"diff":string}';
+        $diffOut = 'with -f json: {"summary":{"lines_added":int,"lines_removed":int,"hunks":int,"truncated":bool,"tags_touched":[string],"changes":[{"kind":"text|added|removed","selector":string,"context":string|null,"before":string|null,"after":string|null}]},"diff":string}. With --expect-selector it also carries "assertion":{"expected_selectors":[string],"satisfied":bool,"inside_scope_changed":bool,"reason":string,"out_of_scope":{<a diff summary>,"diff":string}}.';
 
         return [
             'tool' => 'render-loop',
@@ -333,17 +351,17 @@ HELP);
                     'name' => 'recheck',
                     'summary' => 'Re-capture the page and diff it against its latest snapshot — only the real change should surface.',
                     'required' => ['url'],
-                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code', 'allow-host', 'cookie-name'],
+                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code', 'expect-selector', 'allow-host', 'cookie-name'],
                     'output' => $diffOut,
-                    'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code.',
+                    'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code. With --expect-selector the scope assertion drives it: 0 when every change is confined to the selector(s), non-zero otherwise.',
                 ],
                 [
                     'name' => 'compare',
                     'summary' => 'Diff two precise snapshots by id.',
                     'required' => ['from', 'to'],
-                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code'],
+                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code', 'expect-selector'],
                     'output' => $diffOut,
-                    'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code.',
+                    'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code. With --expect-selector the scope assertion drives it: 0 when every change is confined to the selector(s), non-zero otherwise.',
                 ],
                 [
                     'name' => 'list',
@@ -452,6 +470,7 @@ HELP);
                 'Capture the state BEFORE you touch anything: `-a capture -u <url> -t before`. No "before" snapshot means nothing to diff against.',
                 'Make your change, then make sure the server actually serves the new file (watch opcache / build steps) before re-checking.',
                 'Re-check: `-a recheck -u <url> -f json`. The diff should contain ONLY your intended change — anything else is a regression (an indirect effect, a shared include, concurrent edit).',
+                'Assert the blast radius instead of eyeballing the diff: declare the only selector your edit may touch with `--expect-selector=<css>` (repeatable). You get a binary verdict (`assertion.satisfied`) and, on failure, the isolated out-of-scope leak + a non-zero exit. Declaring the intent BEFORE you see the diff is what stops you rationalizing an unexpected change away.',
                 'For JS/SPA pages, render the HTML elsewhere and push it: `cat rendered.html | render-loop -a store -u <url> -t before`.',
             ],
             'reading_the_output' => [
@@ -464,6 +483,7 @@ HELP);
                 'Point `-c/--config` at YOUR project config, not the one bundled under vendor/ (read-only). You can declare your own noise without calibrating: `-a mask-add --selector=.chat-widget`.',
                 '`changes` is best-effort on messy markup: a structural insertion that shifts positional paths makes it fall back to empty. The unified `diff` is the signal you can always rely on.',
                 'It covers rendering only: a DB write, an export, a PDF or an API response stays invisible. For a critical computation, extract the function and unit-test it — the loop complements tests, it does not replace them.',
+                '`--expect-selector` is an ephemeral per-edit guard, not a frozen regression net (that is golden-record/golden-verify). `satisfied:true` only means no visible change leaked outside the selector — not that the edit is correct, and not that non-rendered effects are fine. A wrong/missing selector shows up as satisfied:false with "matched no element", not a false green.',
                 'Authenticated pages: pass the session cookie value via the RENDERLOOP_COOKIE environment variable, never as a CLI argument (it would be visible in `ps`).',
             ],
         ];
@@ -575,25 +595,68 @@ HELP);
         return new CurlCaptureStrategy(new UrlGuard($hosts), $cookie, $cookieName);
     }
 
-    private function renderDiff(InputInterface $input, OutputInterface $output, DiffResult $diff, string $header): int
+    /**
+     * Assertion de portée demandée par `--expect-selector`, ou null si l'option est
+     * absente. Présente, elle fait du verdict de confinement la source du code de
+     * retour (voir {@see renderDiff}).
+     */
+    private function scopeAssertion(InputInterface $input, string $before, string $after): ?ScopeAssertion
     {
-        // With --exit-code, a non-empty diff is a failure status (like `git diff
-        // --exit-code`); an identical render is always a success. Without the flag
-        // the status stays SUCCESS regardless, so existing callers are unaffected.
-        $diffStatus = ($input->getOption('exit-code') && !$diff->isIdentical())
-            ? self::FAILURE
-            : self::SUCCESS;
+        $selectors = $this->expectedSelectors($input);
+        if ($selectors === []) {
+            return null;
+        }
+
+        $checker = new ScopeAssertionChecker(
+            $this->loadConfig($input),
+            new HtmlDiffer(max(1, $this->intOption($input, 'max-hunks', 40))),
+        );
+
+        return $checker->check($before, $after, $selectors);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function expectedSelectors(InputInterface $input): array
+    {
+        $raw = $input->getOption('expect-selector');
+
+        return is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
+    }
+
+    private function renderDiff(InputInterface $input, OutputInterface $output, DiffResult $diff, string $header, ?ScopeAssertion $assertion = null): int
+    {
+        // Avec une assertion de portée, le verdict de confinement EST le code de
+        // retour (comme un assert PHPUnit) : 0 si confiné, non-zéro sinon. Sinon on
+        // garde la sémantique git : --exit-code échoue sur un diff non vide, et sans
+        // le flag le statut reste SUCCESS quel que soit le diff.
+        if ($assertion !== null) {
+            $diffStatus = $assertion->satisfied ? self::SUCCESS : self::FAILURE;
+        } else {
+            $diffStatus = ($input->getOption('exit-code') && !$diff->isIdentical())
+                ? self::FAILURE
+                : self::SUCCESS;
+        }
 
         if ($this->isJson($input)) {
-            $output->writeln($this->json(['summary' => $diff->summary(), 'diff' => $diff->unifiedDiff]));
+            $payload = ['summary' => $diff->summary(), 'diff' => $diff->unifiedDiff];
+            if ($assertion !== null) {
+                $payload['assertion'] = $assertion->toArray();
+            }
+            $output->writeln($this->json($payload));
 
             return $diffStatus;
+        }
+
+        if ($assertion !== null) {
+            $this->writeAssertion($output, $assertion);
         }
 
         if ($diff->isIdentical()) {
             $output->writeln("<info>No difference</info> ({$header})");
 
-            return self::SUCCESS;
+            return $diffStatus;
         }
 
         $tags = implode(', ', $diff->tagsTouched);
@@ -638,6 +701,36 @@ HELP);
             };
             $output->writeln(sprintf('  • %s: %s', $where, $what));
         }
+    }
+
+    /**
+     * Verdict de l'assertion de portée, en tête du diff : vert si confiné, rouge
+     * sinon — et dans ce cas on montre UNIQUEMENT ce qui a fuité hors de la portée
+     * (les changements attendus, eux, sont masqués), pour que le lecteur voie le
+     * problème sans le noyer dans le diff complet.
+     */
+    private function writeAssertion(OutputInterface $output, ScopeAssertion $assertion): void
+    {
+        $selectors = implode(', ', $assertion->expectedSelectors);
+
+        if ($assertion->satisfied) {
+            $output->writeln("<info>Assertion OK</info>: {$assertion->reason} ({$selectors}).");
+        } else {
+            $output->writeln("<error>Assertion FAILED</error>: {$assertion->reason} (expected only {$selectors}).");
+        }
+
+        if (!$assertion->insideScopeChanged) {
+            $output->writeln('<comment>Note</comment>: no visible change inside the expected scope.');
+        }
+
+        if (!$assertion->satisfied && !$assertion->outOfScope->isIdentical()) {
+            $output->writeln('Out of scope:');
+            $this->writeChanges($output, $assertion->outOfScope->changes);
+            $output->writeln('');
+            $this->writeUnifiedDiff($output, $assertion->outOfScope->unifiedDiff);
+        }
+
+        $output->writeln('');
     }
 
     /**

@@ -49,6 +49,22 @@ class HtmlCompareCommandTest extends TestCase
         return [new CommandTester(new HtmlCompareCommand()), $avant, $apres];
     }
 
+    /**
+     * Deux captures d'un HTML choisi, pour éprouver l'assertion de portée.
+     *
+     * @return array{0: CommandTester, 1: string, 2: string}
+     */
+    private function deuxHtml(string $avant, string $apres): array
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $url = 'https://app.local/fiche.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $from = $repo->save(new Snapshot($url, 1000.0, $avant, $folder, 'avant'));
+        $to = $repo->save(new Snapshot($url, 2000.0, $apres, $folder, 'apres'));
+
+        return [new CommandTester(new HtmlCompareCommand()), $from, $to];
+    }
+
     public function testCompareAfficheLeChangement(): void
     {
         [$tester, $avant, $apres] = $this->deuxCaptures();
@@ -229,6 +245,112 @@ class HtmlCompareCommandTest extends TestCase
         self::assertStringContainsString('modus operandi', $display);
         self::assertStringContainsString('The loop to follow', $display);
         self::assertStringContainsString('Pitfalls', $display);
+    }
+
+    public function testExpectSelectorReussitQuandLeChangementEstConfine(): void
+    {
+        [$tester, $from, $to] = $this->deuxHtml(
+            '<main id="contenu"><h1>Produit</h1><p class="prix">19,90</p></main>',
+            '<main id="contenu"><h1>Produit</h1><p class="prix">24,90</p></main>',
+        );
+
+        $tester->execute([
+            '--action' => 'compare',
+            '--from' => $from,
+            '--to' => $to,
+            '--dir' => $this->dir,
+            '--expect-selector' => ['.prix'],
+        ]);
+
+        $tester->assertCommandIsSuccessful();
+    }
+
+    public function testExpectSelectorEchoueQuandUnChangementFuitHorsDuSelecteur(): void
+    {
+        [$tester, $from, $to] = $this->deuxHtml(
+            '<main id="contenu"><h1>Produit</h1><p class="prix">19,90</p></main>',
+            '<main id="contenu"><h1>Promo</h1><p class="prix">24,90</p></main>',
+        );
+
+        $tester->execute([
+            '--action' => 'compare',
+            '--from' => $from,
+            '--to' => $to,
+            '--dir' => $this->dir,
+            '--expect-selector' => ['.prix'],
+        ]);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('Promo', $tester->getDisplay());
+    }
+
+    public function testExpectSelectorEchoueQuandLeSelecteurNeMatcheRien(): void
+    {
+        [$tester, $from, $to] = $this->deuxHtml(
+            '<main id="contenu"><p class="prix">19,90</p></main>',
+            '<main id="contenu"><p class="prix">24,90</p></main>',
+        );
+
+        $tester->execute([
+            '--action' => 'compare',
+            '--from' => $from,
+            '--to' => $to,
+            '--dir' => $this->dir,
+            '--expect-selector' => ['.inexistant'],
+            '--format' => 'json',
+        ]);
+
+        self::assertSame(1, $tester->getStatusCode());
+        /** @var array{assertion: array{satisfied: bool, reason: string}} $out */
+        $out = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertFalse($out['assertion']['satisfied']);
+        self::assertStringContainsString('matched no element', $out['assertion']['reason']);
+    }
+
+    public function testExpectSelectorJsonExposeLaPortionHorsScope(): void
+    {
+        [$tester, $from, $to] = $this->deuxHtml(
+            '<main id="contenu"><h1>Produit</h1><p class="prix">19,90</p></main>',
+            '<main id="contenu"><h1>Promo</h1><p class="prix">24,90</p></main>',
+        );
+
+        $tester->execute([
+            '--action' => 'compare',
+            '--from' => $from,
+            '--to' => $to,
+            '--dir' => $this->dir,
+            '--expect-selector' => ['.prix'],
+            '--format' => 'json',
+        ]);
+
+        /** @var array{assertion: array{satisfied: bool, out_of_scope: array{diff: string}}} $out */
+        $out = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertFalse($out['assertion']['satisfied']);
+        // La fuite (le <h1>) est présente dans le diff hors portée…
+        self::assertStringContainsString('Promo', $out['assertion']['out_of_scope']['diff']);
+        // …mais le changement attendu (le prix) est bien masqué, pas répété comme une fuite.
+        self::assertStringNotContainsString('24,90', $out['assertion']['out_of_scope']['diff']);
+    }
+
+    public function testExpectSelectorSatisfaitQuandRenduIdentiqueSignaleUnScopeInchange(): void
+    {
+        $html = '<main id="contenu"><p class="prix">19,90</p></main>';
+        [$tester, $from, $to] = $this->deuxHtml($html, $html);
+
+        $tester->execute([
+            '--action' => 'compare',
+            '--from' => $from,
+            '--to' => $to,
+            '--dir' => $this->dir,
+            '--expect-selector' => ['.prix'],
+            '--format' => 'json',
+        ]);
+
+        $tester->assertCommandIsSuccessful();
+        /** @var array{assertion: array{satisfied: bool, inside_scope_changed: bool}} $out */
+        $out = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertTrue($out['assertion']['satisfied']);
+        self::assertFalse($out['assertion']['inside_scope_changed']);
     }
 
     /**
