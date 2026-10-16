@@ -41,7 +41,7 @@ class HtmlCompareCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | mask-add | golden-record | golden-verify | capabilities', 'recheck')
+            ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | mask-add | golden-record | golden-verify | capabilities | advise', 'recheck')
             ->addOption('suite', null, InputOption::VALUE_REQUIRED, 'Golden suite name (manifest <golden-dir>/<suite>.json)')
             ->addOption('golden-dir', null, InputOption::VALUE_REQUIRED, 'Golden suites directory', 'golden')
             ->addOption('url', 'u', InputOption::VALUE_REQUIRED, 'Page URL')
@@ -76,6 +76,7 @@ Detects the changes of a web page between two moments.
                                   (--samples=N to capture more; --apply to write them to the config)
   mask-add --selector=...        add your own noise selectors to the config (repeat --selector)
   capabilities                   machine-readable contract of every action (-f json); for AI agents
+  advise                         modus operandi + pitfalls for an AI agent driving the loop (-f json)
 
 <info>Golden master (legacy pages without tests):</info>
   golden-record --suite=page   pin the current rendered output of the cases in golden/page.json
@@ -102,6 +103,7 @@ HELP);
                 'calibrate' => $this->doCalibrate($input, $output, $service),
                 'mask-add' => $this->doMaskAdd($input, $output),
                 'capabilities' => $this->doCapabilities($input, $output),
+                'advise' => $this->doAdvise($input, $output),
                 'golden-record' => $this->doGoldenRecord($input, $output),
                 'golden-verify' => $this->doGoldenVerify($input, $output),
                 default => $this->fail($output, "Unknown action: {$action}"),
@@ -376,6 +378,14 @@ HELP);
                     'exit_code' => '0.',
                 ],
                 [
+                    'name' => 'advise',
+                    'summary' => 'Modus operandi and pitfalls for an AI agent driving the loop (the "how", where capabilities is the "what").',
+                    'required' => [],
+                    'optional' => ['format'],
+                    'output' => 'with -f json: {"audience":string,"one_liner":string,"workflow":[string],"reading_the_output":[string],"pitfalls":[string]}',
+                    'exit_code' => '0.',
+                ],
+                [
                     'name' => 'golden-record',
                     'summary' => 'Pin the current rendered output of a suite of cases (approval/characterization testing).',
                     'required' => ['suite'],
@@ -391,6 +401,70 @@ HELP);
                     'output' => 'text/json per case (OK / CHANGED + summary / missing).',
                     'exit_code' => 'non-zero if any case changed or is missing a golden; 0 when all match.',
                 ],
+            ],
+        ];
+    }
+
+    private function doAdvise(InputInterface $input, OutputInterface $output): int
+    {
+        $advice = $this->adviceManifest();
+
+        if ($this->isJson($input)) {
+            $output->writeln($this->json($advice));
+
+            return self::SUCCESS;
+        }
+
+        $output->writeln("<comment>RenderLoop — modus operandi for an AI agent</comment>");
+        $output->writeln("<info>{$advice['one_liner']}</info>");
+        $output->writeln('');
+        $this->writeAdviceSection($output, 'The loop to follow', $advice['workflow'], true);
+        $this->writeAdviceSection($output, 'Reading the output', $advice['reading_the_output'], false);
+        $this->writeAdviceSection($output, 'Pitfalls', $advice['pitfalls'], false);
+        $output->writeln('Run <info>-a capabilities -f json</info> for the machine-readable contract of every action.');
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * @param list<string> $items
+     */
+    private function writeAdviceSection(OutputInterface $output, string $title, array $items, bool $numbered): void
+    {
+        $output->writeln("<comment>{$title}</comment>");
+        foreach ($items as $i => $item) {
+            $bullet = $numbered ? sprintf('%d.', $i + 1) : '-';
+            $output->writeln("  {$bullet} {$item}");
+        }
+        $output->writeln('');
+    }
+
+    /**
+     * @return array{audience: string, one_liner: string, workflow: list<string>, reading_the_output: list<string>, pitfalls: list<string>}
+     */
+    private function adviceManifest(): array
+    {
+        return [
+            'audience' => 'AI coding agents',
+            'one_liner' => 'Prove your edit did exactly what you intended, and nothing else.',
+            'workflow' => [
+                'Discover the CLI before guessing: `-a capabilities -f json` returns every action, its required options, output shape and exit-code semantics.',
+                'Capture the state BEFORE you touch anything: `-a capture -u <url> -t before`. No "before" snapshot means nothing to diff against.',
+                'Make your change, then make sure the server actually serves the new file (watch opcache / build steps) before re-checking.',
+                'Re-check: `-a recheck -u <url> -f json`. The diff should contain ONLY your intended change — anything else is a regression (an indirect effect, a shared include, concurrent edit).',
+                'For JS/SPA pages, render the HTML elsewhere and push it: `cat rendered.html | render-loop -a store -u <url> -t before`.',
+            ],
+            'reading_the_output' => [
+                'Read `summary` first (lines_added, lines_removed, hunks, tags_touched, changes). Unfold the full `diff` only when the summary is non-empty — it keeps your token budget low.',
+                'The `changes` array is the semantic layer: one entry per localized change (kind/selector/context/before/after), so you need not parse the unified diff to know what happened.',
+                'Decide from the JSON summary, not the exit code: recheck/compare return 0 even with a diff. Pass `--exit-code` if you want a non-zero status on a non-empty diff, like `git diff --exit-code`.',
+            ],
+            'pitfalls' => [
+                'Masking is always by selector, never by regex on content: a price dropping to 0.00 must stay visible in the diff, not be erased as noise.',
+                'Point `-c/--config` at YOUR project config, not the one bundled under vendor/ (read-only). You can declare your own noise without calibrating: `-a mask-add --selector=.chat-widget`.',
+                '`changes` is best-effort on messy markup: a structural insertion that shifts positional paths makes it fall back to empty. The unified `diff` is the signal you can always rely on.',
+                'It covers rendering only: a DB write, an export, a PDF or an API response stays invisible. For a critical computation, extract the function and unit-test it — the loop complements tests, it does not replace them.',
+                'Authenticated pages: pass the session cookie value via the RENDERLOOP_COOKIE environment variable, never as a CLI argument (it would be visible in `ps`).',
             ],
         ];
     }
