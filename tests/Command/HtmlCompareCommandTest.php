@@ -192,7 +192,7 @@ class HtmlCompareCommandTest extends TestCase
         $names = array_map(static fn (array $a): string => $a['name'], $manifest['actions']);
         self::assertSame([
             'capture', 'store', 'recheck', 'compare', 'list',
-            'calibrate', 'mask-add', 'capabilities', 'golden-record', 'golden-verify',
+            'calibrate', 'mask-add', 'capabilities', 'advise', 'golden-record', 'golden-verify',
         ], $names);
 
         foreach ($manifest['actions'] as $action) {
@@ -200,6 +200,35 @@ class HtmlCompareCommandTest extends TestCase
             self::assertArrayHasKey('output', $action);
             self::assertArrayHasKey('exit_code', $action);
         }
+    }
+
+    public function testAdviseJsonExposeLeModeOperatoire(): void
+    {
+        $tester = new CommandTester(new HtmlCompareCommand());
+
+        $tester->execute(['--action' => 'advise', '--format' => 'json', '--dir' => $this->dir]);
+
+        $tester->assertCommandIsSuccessful();
+        /** @var array{audience: string, one_liner: string, workflow: list<string>, reading_the_output: list<string>, pitfalls: list<string>} $advice */
+        $advice = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('AI coding agents', $advice['audience']);
+        self::assertNotEmpty($advice['workflow']);
+        self::assertNotEmpty($advice['reading_the_output']);
+        self::assertNotEmpty($advice['pitfalls']);
+    }
+
+    public function testAdviseTexteListeLesEtapes(): void
+    {
+        $tester = new CommandTester(new HtmlCompareCommand());
+
+        $tester->execute(['--action' => 'advise', '--dir' => $this->dir]);
+
+        $tester->assertCommandIsSuccessful();
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('modus operandi', $display);
+        self::assertStringContainsString('The loop to follow', $display);
+        self::assertStringContainsString('Pitfalls', $display);
     }
 
     /**

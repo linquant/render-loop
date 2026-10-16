@@ -83,7 +83,10 @@ RenderLoop gives an autonomous agent a tight, cheap, high-signal feedback loop:
 An agent can discover the whole CLI without parsing help text:
 `render-loop -a capabilities -f json` returns a machine-readable contract of every
 action — its required options, the shape of its JSON output, and its exit-code
-semantics.
+semantics. And `render-loop -a advise` (add `-f json`) returns the *modus
+operandi* itself — the loop to follow, how to read the output, and the pitfalls —
+so the agent learns the **how**, not just the **what**. (The same guidance lives
+in [AGENTS.md](AGENTS.md) for agents that read the repo first.)
 
 Every action takes `-f json`. The `summary` (`lines_added`, `lines_removed`,
 `hunks`, `tags_touched`, `changes`) is built for a token-budgeted reader — read
@@ -155,6 +158,7 @@ render-loop -a calibrate -u <url>              # suggest noise selectors to mask
 render-loop -a calibrate -u <url> --apply      # …and write them into the config
 render-loop -a mask-add --selector='.chat-widget'  # add your own noise selectors
 render-loop -a capabilities -f json            # machine-readable contract of every action
+render-loop -a advise [-f json]                # modus operandi + pitfalls for an AI agent
 cat rendered.html | render-loop -a store -u <url> -t before   # push HTML for a JS/SPA page
 ```
 
