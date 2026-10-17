@@ -36,6 +36,11 @@ never shows.
    not a frozen regression net — that is golden master (below).
 6. **JS/SPA pages** — render the HTML elsewhere and push it:
    `cat rendered.html | render-loop -a store -u <url> -t before`.
+7. **Legacy pages fed by an internal AJAX call** — don't snapshot the shell (the
+   data isn't in it, so the diff stays blind to it): snapshot the fragment
+   endpoint directly with `render-loop -a capture -u <endpoint> --ajax` (adds the
+   `X-Requested-With` header), or `--method POST --data '…'` for a POST endpoint.
+   No browser needed when the AJAX call is a plain HTTP request.
 
 ### Reading the output
 

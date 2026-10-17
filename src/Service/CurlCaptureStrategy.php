@@ -18,12 +18,22 @@ namespace RenderLoop\Service;
  */
 final class CurlCaptureStrategy implements CaptureStrategy
 {
+    /**
+     * `$method` / `$extraHeaders` / `$data` permettent de rejouer un endpoint
+     * AJAX legacy (ex. un contrôleur qui n'émet le fragment que sur un POST ou
+     * en présence de `X-Requested-With`). Vides, la capture reste un simple GET.
+     *
+     * @param list<string> $extraHeaders En-têtes HTTP supplémentaires ("Nom: valeur").
+     */
     public function __construct(
         private readonly UrlGuard $guard,
         private readonly ?string $sessionCookie = null,
         private readonly string $cookieName = 'PHPSESSID',
         private readonly ?string $internalBase = null,
         private readonly int $timeoutSeconds = 15,
+        private readonly ?string $method = null,
+        private readonly array $extraHeaders = [],
+        private readonly ?string $data = null,
     ) {
     }
 
@@ -37,19 +47,7 @@ final class CurlCaptureStrategy implements CaptureStrategy
             throw new \RuntimeException("Initialisation curl impossible : {$url}");
         }
 
-        $options = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_TIMEOUT => $this->timeoutSeconds,
-        ];
-        if ($this->sessionCookie !== null) {
-            $options[CURLOPT_COOKIE] = $this->cookieName . '=' . $this->sessionCookie;
-        }
-        $hostHeader = $this->originalHostHeader($url);
-        if ($this->internalBase !== null && $hostHeader !== null) {
-            $options[CURLOPT_HTTPHEADER] = ['Host: ' . $hostHeader];
-        }
-        curl_setopt_array($handle, $options);
+        curl_setopt_array($handle, $this->buildRequestOptions($this->originalHostHeader($url)));
 
         $body = curl_exec($handle);
         $error = curl_error($handle);
@@ -64,6 +62,48 @@ final class CurlCaptureStrategy implements CaptureStrategy
         }
 
         return $body;
+    }
+
+    /**
+     * Construit le tableau d'options curl (hors URL cible). Isolé de `curl_exec`
+     * pour être testable sans réseau, comme {@see rewriteTarget}.
+     *
+     * @param ?string $hostHeader En-tête Host d'origine à préserver quand la
+     *                            requête est routée vers `internalBase`.
+     * @return array<int, mixed>
+     */
+    public function buildRequestOptions(?string $hostHeader): array
+    {
+        $options = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+        ];
+
+        if ($this->sessionCookie !== null) {
+            $options[CURLOPT_COOKIE] = $this->cookieName . '=' . $this->sessionCookie;
+        }
+
+        // --data seul suffit à basculer la requête en POST (comportement curl usuel).
+        $method = $this->method ?? ($this->data !== null ? 'POST' : null);
+        if ($method !== null) {
+            $options[CURLOPT_CUSTOMREQUEST] = strtoupper($method);
+        }
+        if ($this->data !== null) {
+            $options[CURLOPT_POSTFIELDS] = $this->data;
+        }
+
+        // Fusion : le Host interne (routage internalBase) cohabite avec les
+        // en-têtes custom au lieu d'être écrasé par eux.
+        $headers = $this->extraHeaders;
+        if ($this->internalBase !== null && $hostHeader !== null) {
+            array_unshift($headers, 'Host: ' . $hostHeader);
+        }
+        if ($headers !== []) {
+            $options[CURLOPT_HTTPHEADER] = $headers;
+        }
+
+        return $options;
     }
 
     /**

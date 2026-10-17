@@ -61,6 +61,10 @@ class HtmlCompareCommand extends Command
             ->addOption('apply', null, InputOption::VALUE_NONE, 'calibrate: append the discovered selectors straight into the normalizer config')
             ->addOption('selector', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'mask-add: a noise selector to ignore (repeatable)', [])
             ->addOption('expect-selector', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'recheck/compare: assert the change stays within this selector; exit non-zero (and report the leak) on any change outside it (repeatable)', [])
+            ->addOption('method', null, InputOption::VALUE_REQUIRED, 'capture/recheck: HTTP method to use (e.g. POST); defaults to GET, or POST when --data is set')
+            ->addOption('header', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'capture/recheck: extra request header "Name: value" (repeatable), e.g. to replay an internal AJAX endpoint', [])
+            ->addOption('data', null, InputOption::VALUE_REQUIRED, 'capture/recheck: request body (implies POST unless --method is set)')
+            ->addOption('ajax', null, InputOption::VALUE_NONE, 'capture/recheck: shorthand adding the "X-Requested-With: XMLHttpRequest" header (legacy AJAX endpoints)')
             ->setHelp(<<<'HELP'
 Detects the changes of a web page between two moments.
 
@@ -75,6 +79,11 @@ exit != 0 if anything changes outside it, with the leak reported):
 
 <info>JS/SPA pages</info> (the rendered HTML is pushed via STDIN by a headless browser):
   <comment>cat rendered.html | render-loop -a store -u "http://localhost/app" -t before</comment>
+
+<info>Legacy pages fed by an internal AJAX call</info> (snapshot the fragment endpoint
+directly — no browser needed; --ajax adds the X-Requested-With header):
+  <comment>render-loop -a capture -u "http://localhost/ajax/price.php?id=42" --ajax -t before</comment>
+  <comment>render-loop -a capture -u "http://localhost/search" --method POST --data "q=bag&page=2" --ajax</comment>
 
 <info>Other actions:</info>
   compare --from=<id> --to=<id>   diff between two precise snapshots
@@ -323,7 +332,7 @@ HELP);
      */
     private function capabilitiesManifest(): array
     {
-        $capture = ['url', 'tag', 'dir', 'config', 'allow-host', 'cookie-name'];
+        $capture = ['url', 'tag', 'dir', 'config', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'];
         $diffOut = 'with -f json: {"summary":{"lines_added":int,"lines_removed":int,"hunks":int,"truncated":bool,"tags_touched":[string],"changes":[{"kind":"text|added|removed","selector":string,"context":string|null,"before":string|null,"after":string|null}]},"diff":string}. With --expect-selector it also carries "assertion":{"expected_selectors":[string],"satisfied":bool,"inside_scope_changed":bool,"reason":string,"out_of_scope":{<a diff summary>,"diff":string}}.';
 
         return [
@@ -333,9 +342,9 @@ HELP);
             'actions' => [
                 [
                     'name' => 'capture',
-                    'summary' => 'Fetch a page (curl) and store its rendered HTML as a "before" snapshot.',
+                    'summary' => 'Fetch a page (curl) and store its rendered HTML as a "before" snapshot. --method/--header/--data/--ajax replay an internal AJAX endpoint directly.',
                     'required' => ['url'],
-                    'optional' => ['tag', 'dir', 'config', 'allow-host', 'cookie-name'],
+                    'optional' => ['tag', 'dir', 'config', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
                     'output' => 'text: the saved snapshot id.',
                     'exit_code' => '0 on success, non-zero on error.',
                 ],
@@ -351,7 +360,7 @@ HELP);
                     'name' => 'recheck',
                     'summary' => 'Re-capture the page and diff it against its latest snapshot — only the real change should surface.',
                     'required' => ['url'],
-                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code', 'expect-selector', 'allow-host', 'cookie-name'],
+                    'optional' => ['dir', 'config', 'format', 'max-hunks', 'exit-code', 'expect-selector', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
                     'output' => $diffOut,
                     'exit_code' => '0 by default even when the diff is non-empty; non-zero on a non-empty diff only with --exit-code. With --expect-selector the scope assertion drives it: 0 when every change is confined to the selector(s), non-zero otherwise.',
                 ],
@@ -375,7 +384,7 @@ HELP);
                     'name' => 'calibrate',
                     'summary' => 'Capture the page several times unchanged; whatever differs is noise. Suggests (or, with --apply, writes) the selectors to mask.',
                     'required' => ['url'],
-                    'optional' => ['samples', 'apply', 'config', 'dir', 'format', 'allow-host', 'cookie-name'],
+                    'optional' => ['samples', 'apply', 'config', 'dir', 'format', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
                     'output' => 'with -f json: {"candidates":[string],"applied":[string]}',
                     'exit_code' => '0.',
                 ],
@@ -407,7 +416,7 @@ HELP);
                     'name' => 'golden-record',
                     'summary' => 'Pin the current rendered output of a suite of cases (approval/characterization testing).',
                     'required' => ['suite'],
-                    'optional' => ['golden-dir', 'config', 'dir', 'allow-host', 'cookie-name'],
+                    'optional' => ['golden-dir', 'config', 'dir', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
                     'output' => 'text: number of cases pinned and mask size.',
                     'exit_code' => '0 on success, non-zero on error.',
                 ],
@@ -415,7 +424,7 @@ HELP);
                     'name' => 'golden-verify',
                     'summary' => 'Re-capture each case of a suite and compare to its golden; fails on any render drift.',
                     'required' => ['suite'],
-                    'optional' => ['golden-dir', 'config', 'dir', 'format', 'allow-host', 'cookie-name'],
+                    'optional' => ['golden-dir', 'config', 'dir', 'format', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
                     'output' => 'text/json per case (OK / CHANGED + summary / missing).',
                     'exit_code' => 'non-zero if any case changed or is missing a golden; 0 when all match.',
                 ],
@@ -472,6 +481,7 @@ HELP);
                 'Re-check: `-a recheck -u <url> -f json`. The diff should contain ONLY your intended change — anything else is a regression (an indirect effect, a shared include, concurrent edit).',
                 'Assert the blast radius instead of eyeballing the diff: declare the only selector your edit may touch with `--expect-selector=<css>` (repeatable). You get a binary verdict (`assertion.satisfied`) and, on failure, the isolated out-of-scope leak + a non-zero exit. Declaring the intent BEFORE you see the diff is what stops you rationalizing an unexpected change away.',
                 'For JS/SPA pages, render the HTML elsewhere and push it: `cat rendered.html | render-loop -a store -u <url> -t before`.',
+                'For a legacy page whose data arrives via an internal AJAX call, do not snapshot the shell (the data is not in it): snapshot the fragment endpoint directly with `-a capture -u <endpoint> --ajax` (adds the X-Requested-With header), or add `--method POST --data "..."` for a POST endpoint. No browser needed when the AJAX call is a plain HTTP request.',
             ],
             'reading_the_output' => [
                 'Read `summary` first (lines_added, lines_removed, hunks, tags_touched, changes). Unfold the full `diff` only when the summary is non-empty — it keeps your token budget low.',
@@ -592,7 +602,43 @@ HELP);
         $cookie = is_string($cookie) && $cookie !== '' ? $cookie : null;
         $cookieName = $this->optionalString($input, 'cookie-name') ?? 'PHPSESSID';
 
-        return new CurlCaptureStrategy(new UrlGuard($hosts), $cookie, $cookieName);
+        return new CurlCaptureStrategy(
+            new UrlGuard($hosts),
+            $cookie,
+            $cookieName,
+            null,
+            15,
+            $this->optionalString($input, 'method'),
+            $this->requestHeaders($input),
+            $this->optionalString($input, 'data'),
+        );
+    }
+
+    /**
+     * En-têtes de la requête de capture : ceux passés via --header, auxquels
+     * --ajax ajoute X-Requested-With (sans doublonner s'il est déjà présent).
+     *
+     * @return list<string>
+     */
+    private function requestHeaders(InputInterface $input): array
+    {
+        $raw = $input->getOption('header');
+        $headers = is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
+
+        if ($input->getOption('ajax') === true) {
+            $alreadySet = false;
+            foreach ($headers as $header) {
+                if (stripos($header, 'x-requested-with:') === 0) {
+                    $alreadySet = true;
+                    break;
+                }
+            }
+            if (!$alreadySet) {
+                $headers[] = 'X-Requested-With: XMLHttpRequest';
+            }
+        }
+
+        return $headers;
     }
 
     /**
