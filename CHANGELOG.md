@@ -44,4 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code instead of parsing the JSON summary.
 - Framework-agnostic web UI example under `examples/web`.
 
+### Fixed
+
+- CLI failures are written to stderr instead of stdout. With `-f json`, stdout
+  now stays empty on error, so a caller never has to strip a human-readable
+  message before decoding it.
+
 [Unreleased]: https://github.com/linquant/render-loop/commits/main

@@ -87,8 +87,9 @@ in [AGENTS.md](AGENTS.md) for agents that read the repo first.)
 
 Every action takes `-f json`. The `summary` (`lines_added`, `lines_removed`,
 `hunks`, `tags_touched`, `changes`) is built for a token-budgeted reader — read
-the summary, only unfold the full diff when it is non-empty. The loop an agent
-should follow:
+the summary, only unfold the full diff when it is non-empty. On failure the
+message goes to stderr and stdout stays empty, so `json_decode` never sees a
+human-readable error. The loop an agent should follow:
 
 1. `capture -t before` the page it is about to touch,
 2. make the change, and make sure the server serves the new file (watch opcache),

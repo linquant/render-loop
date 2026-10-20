@@ -25,6 +25,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class HtmlCompareCommand extends Command
@@ -337,7 +338,7 @@ HELP);
     }
 
     /**
-     * @return array{tool: string, formats: list<string>, exit_codes: string, actions: list<array{name: string, summary: string, required: list<string>, optional: list<string>, output: string, exit_code: string}>}
+     * @return array{tool: string, formats: list<string>, errors: string, exit_codes: string, actions: list<array{name: string, summary: string, required: list<string>, optional: list<string>, output: string, exit_code: string}>}
      */
     private function capabilitiesManifest(): array
     {
@@ -347,6 +348,7 @@ HELP);
         return [
             'tool' => 'render-loop',
             'formats' => ['table', 'json'],
+            'errors' => 'stderr; stdout stays empty on error, including with -f json.',
             'exit_codes' => '0 = success. recheck/compare return 0 even with a diff unless --exit-code is passed; golden-verify returns non-zero on a render regression; any action returns non-zero on error.',
             'actions' => [
                 [
@@ -881,6 +883,10 @@ HELP);
 
     private function fail(OutputInterface $output, string $message): int
     {
+        if ($output instanceof ConsoleOutputInterface) {
+            $output = $output->getErrorOutput();
+        }
+
         $output->writeln("<error>{$message}</error>");
 
         return self::FAILURE;
