@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Minimum PHP version lowered from 8.2 to 7.4. The code now avoids PHP 8
+  syntax; Composer selects Symfony 5.4 and `sebastian/diff` 4 on 7.4, and the
+  current versions on PHP 8.2+.
+- Public DTO properties are no longer `readonly` (PHP 7.4 has no readonly
+  properties). Treat them as read-only; they are only assigned by constructors.
+
 ### Added
 
 - Initial public release.

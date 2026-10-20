@@ -21,7 +21,6 @@ use RenderLoop\Service\PushedHtmlStrategy;
 use RenderLoop\Service\ScopeAssertion;
 use RenderLoop\Service\ScopeAssertionChecker;
 use RenderLoop\Service\UrlGuard;
-use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
@@ -29,10 +28,6 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(
-    name: 'render-loop',
-    description: 'Capture and compare the HTML state of pages (render regression net)',
-)]
 class HtmlCompareCommand extends Command
 {
     private const DEFAULT_DIR = '.render-loop/snapshots';
@@ -44,6 +39,8 @@ class HtmlCompareCommand extends Command
     protected function configure(): void
     {
         $this
+            ->setName('render-loop')
+            ->setDescription('Capture and compare the HTML state of pages (render regression net)')
             ->addOption('action', 'a', InputOption::VALUE_REQUIRED, 'capture | store | recheck | compare | list | calibrate | mask-add | golden-record | golden-verify | capabilities | advise', 'recheck')
             ->addOption('suite', null, InputOption::VALUE_REQUIRED, 'Golden suite name (manifest <golden-dir>/<suite>.json)')
             ->addOption('golden-dir', null, InputOption::VALUE_REQUIRED, 'Golden suites directory', 'golden')
@@ -111,20 +108,32 @@ HELP);
             $service = $this->buildService($input);
             $action = $this->stringOption($input, 'action', 'recheck');
 
-            return match ($action) {
-                'capture' => $this->doCapture($input, $output, $service),
-                'store' => $this->doStore($input, $output, $service),
-                'recheck' => $this->doRecheck($input, $output, $service),
-                'compare' => $this->doCompare($input, $output, $service),
-                'list' => $this->doList($input, $output, $service),
-                'calibrate' => $this->doCalibrate($input, $output, $service),
-                'mask-add' => $this->doMaskAdd($input, $output),
-                'capabilities' => $this->doCapabilities($input, $output),
-                'advise' => $this->doAdvise($input, $output),
-                'golden-record' => $this->doGoldenRecord($input, $output),
-                'golden-verify' => $this->doGoldenVerify($input, $output),
-                default => $this->fail($output, "Unknown action: {$action}"),
-            };
+            switch ($action) {
+                case 'capture':
+                    return $this->doCapture($input, $output, $service);
+                case 'store':
+                    return $this->doStore($input, $output, $service);
+                case 'recheck':
+                    return $this->doRecheck($input, $output, $service);
+                case 'compare':
+                    return $this->doCompare($input, $output, $service);
+                case 'list':
+                    return $this->doList($input, $output, $service);
+                case 'calibrate':
+                    return $this->doCalibrate($input, $output, $service);
+                case 'mask-add':
+                    return $this->doMaskAdd($input, $output);
+                case 'capabilities':
+                    return $this->doCapabilities($input, $output);
+                case 'advise':
+                    return $this->doAdvise($input, $output);
+                case 'golden-record':
+                    return $this->doGoldenRecord($input, $output);
+                case 'golden-verify':
+                    return $this->doGoldenVerify($input, $output);
+                default:
+                    return $this->fail($output, "Unknown action: {$action}");
+            }
         } catch (\InvalidArgumentException | \RuntimeException $e) {
             return $this->fail($output, $e->getMessage());
         }
@@ -202,7 +211,7 @@ HELP);
         }
 
         if ($this->isJson($input)) {
-            $rows = array_map(static fn(Snapshot $s): array => [
+            $rows = array_map(static fn (Snapshot $s): array => [
                 'id' => $s->id(),
                 'url' => $s->url,
                 'tag' => $s->tag,
@@ -533,7 +542,7 @@ HELP);
                     break;
                 default:
                     $changed++;
-                    $summary = $result->diff?->summary() ?? [];
+                    $summary = $result->diff !== null ? $result->diff->summary() : [];
                     $output->writeln("<error>CHANGED {$result->id}</error> — " . json_encode($summary, JSON_UNESCAPED_UNICODE));
                     if ($result->diff !== null) {
                         $this->writeUnifiedDiff($output, $result->diff->unifiedDiff);
@@ -741,12 +750,20 @@ HELP);
         $output->writeln('Changes:');
         foreach ($changes as $change) {
             $where = $change->context !== null ? "{$change->selector} ({$change->context})" : $change->selector;
-            $what = match ($change->kind) {
-                Change::KIND_TEXT => sprintf('%s → %s', (string) $change->before, (string) $change->after),
-                Change::KIND_ADDED => sprintf('+ %s', (string) $change->after),
-                Change::KIND_REMOVED => sprintf('- %s', (string) $change->before),
-                default => '',
-            };
+            switch ($change->kind) {
+                case Change::KIND_TEXT:
+                    $what = sprintf('%s → %s', (string) $change->before, (string) $change->after);
+                    break;
+                case Change::KIND_ADDED:
+                    $what = sprintf('+ %s', (string) $change->after);
+                    break;
+                case Change::KIND_REMOVED:
+                    $what = sprintf('- %s', (string) $change->before);
+                    break;
+                default:
+                    $what = '';
+                    break;
+            }
             $output->writeln(sprintf('  • %s: %s', $where, $what));
         }
     }
@@ -792,12 +809,20 @@ HELP);
         foreach (explode("\n", $diff) as $line) {
             $rendered = $line;
             if ($decorated && $line !== '') {
-                $rendered = match ($line[0]) {
-                    '+' => "\033[32m{$line}\033[0m",
-                    '-' => "\033[31m{$line}\033[0m",
-                    '@' => "\033[36m{$line}\033[0m",
-                    default => $line,
-                };
+                switch ($line[0]) {
+                    case '+':
+                        $rendered = "\033[32m{$line}\033[0m";
+                        break;
+                    case '-':
+                        $rendered = "\033[31m{$line}\033[0m";
+                        break;
+                    case '@':
+                        $rendered = "\033[36m{$line}\033[0m";
+                        break;
+                    default:
+                        $rendered = $line;
+                        break;
+                }
             }
             $output->writeln($rendered, OutputInterface::OUTPUT_RAW);
         }

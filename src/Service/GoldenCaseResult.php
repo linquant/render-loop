@@ -10,10 +10,19 @@ namespace RenderLoop\Service;
  */
 final class GoldenCaseResult
 {
+    public string $id;
+
+    public string $status;
+
+    public ?DiffResult $diff;
+
     public function __construct(
-        public readonly string $id,
-        public readonly string $status,
-        public readonly ?DiffResult $diff,
+        string $id,
+        string $status,
+        ?DiffResult $diff
     ) {
+        $this->id = $id;
+        $this->status = $status;
+        $this->diff = $diff;
     }
 }

@@ -3,7 +3,7 @@
 
 [![CI](https://github.com/linquant/render-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/linquant/render-loop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![PHP 8.2+](https://img.shields.io/badge/php-8.2%2B-777bb4.svg)](composer.json)
+[![PHP 7.4+](https://img.shields.io/badge/php-7.4%2B-777bb4.svg)](composer.json)
 [![PHPStan](https://img.shields.io/badge/PHPStan-max-brightgreen.svg)](phpstan.neon.dist)
 [![AI-agent ready](https://img.shields.io/badge/AI--agent-ready-8A2BE2.svg)](#-built-for-ai-coding-agents)
 
@@ -165,9 +165,10 @@ reliable unified diff, and masking stays **selector-based**.
 composer require linquant/render-loop
 ```
 
-Requires PHP 8.2+ with `ext-dom`, `ext-libxml`, `ext-json`, and `ext-curl`
+Requires PHP 7.4+ with `ext-dom`, `ext-libxml`, `ext-json`, and `ext-curl`
 (curl is only needed for the fetch-based capture; the push strategy works
-without it).
+without it). On PHP 7.4, Composer selects Symfony 5.4 and `sebastian/diff` 4;
+on PHP 8.2+ it selects the current versions.
 
 ## ⚡ CLI quickstart
 

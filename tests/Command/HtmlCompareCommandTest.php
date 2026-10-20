@@ -65,6 +65,14 @@ class HtmlCompareCommandTest extends TestCase
         return [new CommandTester(new HtmlCompareCommand()), $from, $to];
     }
 
+    public function testLaCommandeEstNommeeRenderLoop(): void
+    {
+        $command = new HtmlCompareCommand();
+
+        self::assertSame('render-loop', $command->getName());
+        self::assertSame('Capture and compare the HTML state of pages (render regression net)', $command->getDescription());
+    }
+
     public function testCompareAfficheLeChangement(): void
     {
         [$tester, $avant, $apres] = $this->deuxCaptures();

@@ -12,10 +12,16 @@ namespace RenderLoop\Service;
 final class UrlGuard
 {
     /**
+     * @var list<string>
+     */
+    private array $allowedHosts;
+
+    /**
      * @param list<string> $allowedHosts hôtes autorisés (comparaison insensible à la casse)
      */
-    public function __construct(private readonly array $allowedHosts)
+    public function __construct(array $allowedHosts)
     {
+        $this->allowedHosts = $allowedHosts;
     }
 
     public function isAllowed(string $url): bool

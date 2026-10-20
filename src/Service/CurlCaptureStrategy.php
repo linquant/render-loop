@@ -18,6 +18,25 @@ namespace RenderLoop\Service;
  */
 final class CurlCaptureStrategy implements CaptureStrategy
 {
+    private UrlGuard $guard;
+
+    private ?string $sessionCookie = null;
+
+    private string $cookieName = 'PHPSESSID';
+
+    private ?string $internalBase = null;
+
+    private int $timeoutSeconds = 15;
+
+    private ?string $method = null;
+
+    /**
+     * @var list<string>
+     */
+    private array $extraHeaders = [];
+
+    private ?string $data = null;
+
     /**
      * `$method` / `$extraHeaders` / `$data` permettent de rejouer un endpoint
      * AJAX legacy (ex. un contrôleur qui n'émet le fragment que sur un POST ou
@@ -26,15 +45,23 @@ final class CurlCaptureStrategy implements CaptureStrategy
      * @param list<string> $extraHeaders En-têtes HTTP supplémentaires ("Nom: valeur").
      */
     public function __construct(
-        private readonly UrlGuard $guard,
-        private readonly ?string $sessionCookie = null,
-        private readonly string $cookieName = 'PHPSESSID',
-        private readonly ?string $internalBase = null,
-        private readonly int $timeoutSeconds = 15,
-        private readonly ?string $method = null,
-        private readonly array $extraHeaders = [],
-        private readonly ?string $data = null,
+        UrlGuard $guard,
+        ?string $sessionCookie = null,
+        string $cookieName = 'PHPSESSID',
+        ?string $internalBase = null,
+        int $timeoutSeconds = 15,
+        ?string $method = null,
+        array $extraHeaders = [],
+        ?string $data = null
     ) {
+        $this->guard = $guard;
+        $this->sessionCookie = $sessionCookie;
+        $this->cookieName = $cookieName;
+        $this->internalBase = $internalBase;
+        $this->timeoutSeconds = $timeoutSeconds;
+        $this->method = $method;
+        $this->extraHeaders = $extraHeaders;
+        $this->data = $data;
     }
 
     public function capture(string $url): string

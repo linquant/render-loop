@@ -11,19 +11,46 @@ namespace RenderLoop\Service;
  */
 final class DiffResult
 {
+    public string $unifiedDiff;
+
+    public int $linesAdded;
+
+    public int $linesRemoved;
+
+    public int $hunks;
+
+    public bool $truncated;
+
+    /**
+     * @var list<string>
+     */
+    public array $tagsTouched;
+
+    /**
+     * @var list<Change>
+     */
+    public array $changes = [];
+
     /**
      * @param list<string> $tagsTouched noms de balises apparaissant dans les lignes modifiées
      * @param list<Change> $changes changements localisés (sélecteur + ancre texte + avant/après)
      */
     public function __construct(
-        public readonly string $unifiedDiff,
-        public readonly int $linesAdded,
-        public readonly int $linesRemoved,
-        public readonly int $hunks,
-        public readonly bool $truncated,
-        public readonly array $tagsTouched,
-        public readonly array $changes = [],
+        string $unifiedDiff,
+        int $linesAdded,
+        int $linesRemoved,
+        int $hunks,
+        bool $truncated,
+        array $tagsTouched,
+        array $changes = []
     ) {
+        $this->unifiedDiff = $unifiedDiff;
+        $this->linesAdded = $linesAdded;
+        $this->linesRemoved = $linesRemoved;
+        $this->hunks = $hunks;
+        $this->truncated = $truncated;
+        $this->tagsTouched = $tagsTouched;
+        $this->changes = $changes;
     }
 
     public function isIdentical(): bool

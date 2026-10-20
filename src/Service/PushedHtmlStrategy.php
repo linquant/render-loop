@@ -10,8 +10,11 @@ namespace RenderLoop\Service;
  */
 final class PushedHtmlStrategy implements CaptureStrategy
 {
-    public function __construct(private readonly string $html)
+    private string $html;
+
+    public function __construct(string $html)
     {
+        $this->html = $html;
     }
 
     public function capture(string $url): string

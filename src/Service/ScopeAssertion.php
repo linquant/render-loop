@@ -17,16 +17,37 @@ namespace RenderLoop\Service;
 final class ScopeAssertion
 {
     /**
+     * @var list<string>
+     */
+    public array $expectedSelectors;
+
+    public bool $satisfied;
+
+    public bool $insideScopeChanged;
+
+    public string $reason;
+
+    /**
+     * @var DiffResult
+     */
+    public DiffResult $outOfScope;
+
+    /**
      * @param list<string> $expectedSelectors sélecteurs où le changement est autorisé
      * @param DiffResult $outOfScope diff de ce qui a changé EN DEHORS de la portée (vide si satisfait)
      */
     public function __construct(
-        public readonly array $expectedSelectors,
-        public readonly bool $satisfied,
-        public readonly bool $insideScopeChanged,
-        public readonly string $reason,
-        public readonly DiffResult $outOfScope,
+        array $expectedSelectors,
+        bool $satisfied,
+        bool $insideScopeChanged,
+        string $reason,
+        DiffResult $outOfScope
     ) {
+        $this->expectedSelectors = $expectedSelectors;
+        $this->satisfied = $satisfied;
+        $this->insideScopeChanged = $insideScopeChanged;
+        $this->reason = $reason;
+        $this->outOfScope = $outOfScope;
     }
 
     /**

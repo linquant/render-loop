@@ -122,7 +122,10 @@ final class ChangeExtractor
     private function directText(\DOMElement $el): string
     {
         $text = '';
-        foreach ($el->childNodes as $child) {
+        foreach (iterator_to_array($el->childNodes) as $child) {
+            if (!$child instanceof \DOMNode) {
+                continue;
+            }
             if ($child->nodeType === XML_TEXT_NODE) {
                 $text .= $child->nodeValue ?? '';
             }

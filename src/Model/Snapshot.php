@@ -18,17 +18,35 @@ use RenderLoop\Service\UrlFolderNamer;
  */
 final class Snapshot
 {
+    public string $url;
+
+    public float $capturedAt;
+
+    public string $html;
+
+    public string $folder;
+
+    public ?string $tag = null;
+
+    public ?string $gitCommit = null;
+
     /** Secondes Unix, pour l'affichage. */
-    public readonly int $timestamp;
+    public int $timestamp;
 
     public function __construct(
-        public readonly string $url,
-        public readonly float $capturedAt,
-        public readonly string $html,
-        public readonly string $folder,
-        public readonly ?string $tag = null,
-        public readonly ?string $gitCommit = null,
+        string $url,
+        float $capturedAt,
+        string $html,
+        string $folder,
+        ?string $tag = null,
+        ?string $gitCommit = null
     ) {
+        $this->url = $url;
+        $this->capturedAt = $capturedAt;
+        $this->html = $html;
+        $this->folder = $folder;
+        $this->tag = $tag;
+        $this->gitCommit = $gitCommit;
         $this->timestamp = (int) $capturedAt;
     }
 

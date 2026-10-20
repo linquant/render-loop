@@ -1,5 +1,7 @@
 parameters:
     level: 10
+    # DOM stubs differ between PHP 7.4 and 8.x; runtime narrowing stays meaningful.
+    treatPhpDocTypesAsCertain: false
     paths:
         - src
         - tests

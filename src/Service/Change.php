@@ -13,17 +13,34 @@ namespace RenderLoop\Service;
  */
 final class Change
 {
+    public string $kind;
+
+    public string $selector;
+
+    public ?string $context;
+
+    public ?string $before;
+
+    public ?string $after;
+
     public const KIND_TEXT = 'text';
+
     public const KIND_ADDED = 'added';
+
     public const KIND_REMOVED = 'removed';
 
     public function __construct(
-        public readonly string $kind,
-        public readonly string $selector,
-        public readonly ?string $context,
-        public readonly ?string $before,
-        public readonly ?string $after,
+        string $kind,
+        string $selector,
+        ?string $context,
+        ?string $before,
+        ?string $after
     ) {
+        $this->kind = $kind;
+        $this->selector = $selector;
+        $this->context = $context;
+        $this->before = $before;
+        $this->after = $after;
     }
 
     /**
