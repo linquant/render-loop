@@ -125,19 +125,27 @@ class HtmlCompareCommandTest extends TestCase
     {
         $tester = new CommandTester(new HtmlCompareCommand());
 
-        $tester->execute(['--action' => 'inexistante', '--dir' => $this->dir]);
+        $tester->execute(
+            ['--action' => 'inexistante', '--dir' => $this->dir],
+            ['capture_stderr_separately' => true],
+        );
 
         self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('Unknown action', $tester->getErrorOutput());
     }
 
-    public function testCaptureSansUrlEchoue(): void
+    public function testErreurJsonVaSurStderrEtLaisseStdoutVide(): void
     {
         $tester = new CommandTester(new HtmlCompareCommand());
 
-        $tester->execute(['--action' => 'capture', '--dir' => $this->dir]);
+        $tester->execute(
+            ['--action' => 'capture', '--format' => 'json', '--dir' => $this->dir],
+            ['capture_stderr_separately' => true],
+        );
 
         self::assertSame(1, $tester->getStatusCode());
-        self::assertStringContainsString('--url', $tester->getDisplay());
+        self::assertSame('', $tester->getDisplay());
+        self::assertStringContainsString('--url', $tester->getErrorOutput());
     }
 
     public function testMaskAddEcritLesSelecteursDansLaConfigCiblee(): void
@@ -187,10 +195,14 @@ class HtmlCompareCommandTest extends TestCase
         $config = $this->tempConfig(['.phpdebugbar']);
         $tester = new CommandTester(new HtmlCompareCommand());
 
-        $tester->execute(['--action' => 'mask-add', '--config' => $config, '--dir' => $this->dir]);
+        $tester->execute(
+            ['--action' => 'mask-add', '--config' => $config, '--dir' => $this->dir],
+            ['capture_stderr_separately' => true],
+        );
 
         self::assertSame(1, $tester->getStatusCode());
-        self::assertStringContainsString('--selector', $tester->getDisplay());
+        self::assertSame('', $tester->getDisplay());
+        self::assertStringContainsString('--selector', $tester->getErrorOutput());
     }
 
     public function testCapabilitiesJsonDecritToutesLesActions(): void
@@ -200,10 +212,11 @@ class HtmlCompareCommandTest extends TestCase
         $tester->execute(['--action' => 'capabilities', '--format' => 'json', '--dir' => $this->dir]);
 
         $tester->assertCommandIsSuccessful();
-        /** @var array{tool: string, actions: list<array{name: string, required: list<string>, output: string, exit_code: string}>} $manifest */
+        /** @var array{tool: string, errors: string, actions: list<array{name: string, required: list<string>, output: string, exit_code: string}>} $manifest */
         $manifest = json_decode($tester->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('render-loop', $manifest['tool']);
+        self::assertStringContainsString('stderr', $manifest['errors']);
 
         $names = array_map(static fn (array $a): string => $a['name'], $manifest['actions']);
         self::assertSame([
