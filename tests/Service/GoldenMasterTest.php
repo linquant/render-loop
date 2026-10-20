@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 class GoldenMasterTest extends TestCase
 {
     private string $dir;
+
     private string $manifestPath;
 
     protected function setUp(): void
@@ -50,10 +51,16 @@ class GoldenMasterTest extends TestCase
      */
     private function strategy(array $map): CaptureStrategy
     {
-        return new class($map) implements CaptureStrategy {
+        return new class ($map) implements CaptureStrategy {
+            /**
+             * @var array<string, string>
+             */
+            private array $map;
+
             /** @param array<string, string> $map */
-            public function __construct(private readonly array $map)
+            public function __construct(array $map)
             {
+                $this->map = $map;
             }
 
             public function capture(string $url): string

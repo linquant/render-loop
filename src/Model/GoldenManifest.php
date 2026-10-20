@@ -12,16 +12,34 @@ namespace RenderLoop\Model;
  */
 final class GoldenManifest
 {
+    private string $name;
+
+    /**
+     * @var list<array{id: string, url: string}>
+     */
+    private array $cases;
+
+    /**
+     * @var list<string>
+     */
+    private array $mask;
+
+    private string $path;
+
     /**
      * @param list<array{id: string, url: string}> $cases
      * @param list<string> $mask
      */
     public function __construct(
-        private readonly string $name,
-        private readonly array $cases,
-        private array $mask,
-        private readonly string $path,
+        string $name,
+        array $cases,
+        array $mask,
+        string $path
     ) {
+        $this->name = $name;
+        $this->cases = $cases;
+        $this->mask = $mask;
+        $this->path = $path;
     }
 
     public static function fromJsonFile(string $path): self

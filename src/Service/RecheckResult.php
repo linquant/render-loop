@@ -12,10 +12,19 @@ use RenderLoop\Model\Snapshot;
  */
 final class RecheckResult
 {
+    public Snapshot $baseline;
+
+    public Snapshot $current;
+
+    public DiffResult $diff;
+
     public function __construct(
-        public readonly Snapshot $baseline,
-        public readonly Snapshot $current,
-        public readonly DiffResult $diff,
+        Snapshot $baseline,
+        Snapshot $current,
+        DiffResult $diff
     ) {
+        $this->baseline = $baseline;
+        $this->current = $current;
+        $this->diff = $diff;
     }
 }

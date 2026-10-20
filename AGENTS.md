@@ -78,6 +78,10 @@ never shows.
 
 ## Working on this codebase
 
+- **Keep the source PHP 7.4-compatible**: no `readonly`, constructor
+  promotion, `match`, enums, attributes, nullsafe calls or union types. CI runs
+  PHP 7.4 with the lowest dependency set, so a modern-only construct breaks the
+  legacy line.
 - **Before opening a PR**: run `composer test` and `composer phpstan`
   (PHPStan runs at **level 10** / `max`). Both must be green.
 - **Keep the three contracts in sync** when you add or change an action:

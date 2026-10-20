@@ -11,13 +11,20 @@ namespace RenderLoop\Service;
  */
 final class NormalizerConfig
 {
+    private ?string $rootSelector;
+
+    /**
+     * @var list<string>
+     */
+    private array $noiseSelectors;
+
     /**
      * @param list<string> $noiseSelectors sélecteurs CSS des nœuds à supprimer
      */
-    public function __construct(
-        private readonly ?string $rootSelector,
-        private readonly array $noiseSelectors,
-    ) {
+    public function __construct(?string $rootSelector, array $noiseSelectors)
+    {
+        $this->rootSelector = $rootSelector;
+        $this->noiseSelectors = $noiseSelectors;
     }
 
     public static function fromJsonFile(string $path): self

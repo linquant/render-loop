@@ -14,12 +14,15 @@ use SebastianBergmann\Diff\Output\UnifiedDiffOutputBuilder;
  */
 final class HtmlDiffer
 {
-    private readonly ChangeExtractor $changeExtractor;
+    private int $maxHunks = 20;
+
+    private ChangeExtractor $changeExtractor;
 
     public function __construct(
-        private readonly int $maxHunks = 20,
-        ?ChangeExtractor $changeExtractor = null,
+        int $maxHunks = 20,
+        ?ChangeExtractor $changeExtractor = null
     ) {
+        $this->maxHunks = $maxHunks;
         $this->changeExtractor = $changeExtractor ?? new ChangeExtractor();
     }
 
@@ -121,9 +124,9 @@ final class HtmlDiffer
                 continue;
             }
             if ($line[0] === '-') {
-                $dels[] = substr($line, 1);
+                $dels[] = (string) substr($line, 1);
             } elseif ($line[0] === '+') {
-                $adds[] = substr($line, 1);
+                $adds[] = (string) substr($line, 1);
             } else {
                 $this->collectBlockTags($dels, $adds, $tags);
                 $dels = [];
@@ -188,8 +191,8 @@ final class HtmlDiffer
         }
 
         return [
-            substr($a, $prefix, $lenA - $prefix - $suffix),
-            substr($b, $prefix, $lenB - $prefix - $suffix),
+            (string) substr($a, $prefix, $lenA - $prefix - $suffix),
+            (string) substr($b, $prefix, $lenB - $prefix - $suffix),
         ];
     }
 

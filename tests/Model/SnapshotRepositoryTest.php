@@ -84,8 +84,12 @@ class SnapshotRepositoryTest extends TestCase
 
         self::assertNotSame($idAvant, $idApres);
         self::assertCount(2, $repo->list($folder));
-        self::assertSame('<p>19,90</p>', $repo->get($idAvant)?->html);
-        self::assertSame('<p>24,90</p>', $repo->get($idApres)?->html);
+        $avant = $repo->get($idAvant);
+        $apres = $repo->get($idApres);
+        self::assertNotNull($avant);
+        self::assertNotNull($apres);
+        self::assertSame('<p>19,90</p>', $avant->html);
+        self::assertSame('<p>24,90</p>', $apres->html);
     }
 
     public function testListeFiltreParPage(): void

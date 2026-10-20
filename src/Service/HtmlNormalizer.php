@@ -23,10 +23,13 @@ use Symfony\Component\CssSelector\CssSelectorConverter;
  */
 final class HtmlNormalizer
 {
-    private readonly CssSelectorConverter $converter;
+    private NormalizerConfig $config;
 
-    public function __construct(private readonly NormalizerConfig $config)
+    private CssSelectorConverter $converter;
+
+    public function __construct(NormalizerConfig $config)
     {
+        $this->config = $config;
         $this->converter = new CssSelectorConverter();
     }
 
@@ -48,10 +51,13 @@ final class HtmlNormalizer
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
 
-        foreach (iterator_to_array($dom->childNodes) as $child) {
-            if ($child->nodeType === XML_PI_NODE) {
+        $child = $dom->firstChild;
+        while ($child !== null) {
+            $next = $child->nextSibling;
+            if ($child instanceof \DOMProcessingInstruction) {
                 $dom->removeChild($child);
             }
+            $child = $next;
         }
 
         $xpath = new \DOMXPath($dom);
@@ -107,7 +113,9 @@ final class HtmlNormalizer
             if (!$node instanceof \DOMNode) {
                 continue;
             }
-            $node->parentNode?->removeChild($node);
+            if ($node->parentNode !== null) {
+                $node->parentNode->removeChild($node);
+            }
         }
     }
 }
