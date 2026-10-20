@@ -15,14 +15,23 @@ use RenderLoop\Model\SnapshotRepository;
  */
 final class HtmlCompareService
 {
+    private SnapshotRepository $repository;
+
+    private HtmlNormalizer $normalizer;
+
+    private HtmlDiffer $differ;
+
     /** Étiquette des captures produites par un recontrôle : elles ne servent jamais de référence. */
     public const RECHECK_TAG = 'recheck';
 
     public function __construct(
-        private readonly SnapshotRepository $repository,
-        private readonly HtmlNormalizer $normalizer,
-        private readonly HtmlDiffer $differ,
+        SnapshotRepository $repository,
+        HtmlNormalizer $normalizer,
+        HtmlDiffer $differ
     ) {
+        $this->repository = $repository;
+        $this->normalizer = $normalizer;
+        $this->differ = $differ;
     }
 
     public function capture(string $url, CaptureStrategy $strategy, ?string $tag = null, ?string $gitCommit = null): Snapshot
@@ -160,6 +169,9 @@ final class HtmlCompareService
         }
 
         $first = array_shift($captures);
+        if ($first === null) {
+            throw new \LogicException('Calibration requires at least two captures.');
+        }
 
         return (new NoiseCalibrator($this->normalizer))->calibrate($first, ...$captures);
     }

@@ -17,7 +17,7 @@ class CurlCaptureStrategyTest extends TestCase
         ?string $method = null,
         array $headers = [],
         ?string $data = null,
-        ?string $internalBase = null,
+        ?string $internalBase = null
     ): CurlCaptureStrategy {
         return new CurlCaptureStrategy(
             new UrlGuard(['localhost']),
@@ -43,14 +43,14 @@ class CurlCaptureStrategyTest extends TestCase
 
     public function testLaMethodePersonnaliseeEstAppliquee(): void
     {
-        $options = $this->strategie(method: 'post')->buildRequestOptions(null);
+        $options = $this->strategie('post')->buildRequestOptions(null);
 
         self::assertSame('POST', $options[CURLOPT_CUSTOMREQUEST]);
     }
 
     public function testDataForceLaMethodePostParDefaut(): void
     {
-        $options = $this->strategie(data: 'q=sac&page=2')->buildRequestOptions(null);
+        $options = $this->strategie(null, [], 'q=sac&page=2')->buildRequestOptions(null);
 
         self::assertSame('POST', $options[CURLOPT_CUSTOMREQUEST]);
         self::assertSame('q=sac&page=2', $options[CURLOPT_POSTFIELDS]);
@@ -58,7 +58,7 @@ class CurlCaptureStrategyTest extends TestCase
 
     public function testLaMethodeExpliciteLemporteSurLeDefautDeData(): void
     {
-        $options = $this->strategie(method: 'PUT', data: '{"x":1}')->buildRequestOptions(null);
+        $options = $this->strategie('PUT', [], '{"x":1}')->buildRequestOptions(null);
 
         self::assertSame('PUT', $options[CURLOPT_CUSTOMREQUEST]);
         self::assertSame('{"x":1}', $options[CURLOPT_POSTFIELDS]);
@@ -66,24 +66,20 @@ class CurlCaptureStrategyTest extends TestCase
 
     public function testLesEntetesCustomSontTransmis(): void
     {
-        $options = $this->strategie(headers: ['X-Requested-With: XMLHttpRequest'])->buildRequestOptions(null);
+        $options = $this->strategie(null, ['X-Requested-With: XMLHttpRequest'])->buildRequestOptions(null);
 
         self::assertSame(['X-Requested-With: XMLHttpRequest'], $options[CURLOPT_HTTPHEADER]);
     }
 
     public function testLesEntetesCustomCohabitentAvecLenteteHostInterne(): void
     {
-        $options = $this->strategie(
-            headers: ['X-Requested-With: XMLHttpRequest'],
-            internalBase: 'http://web',
-        )->buildRequestOptions('app.local:8084');
+        $options = $this->strategie(null, ['X-Requested-With: XMLHttpRequest'], null, 'http://web')->buildRequestOptions('app.local:8084');
 
         self::assertSame(
             ['Host: app.local:8084', 'X-Requested-With: XMLHttpRequest'],
             $options[CURLOPT_HTTPHEADER],
         );
     }
-
 
     public function testSansHoteInterneLUrlEstInchangee(): void
     {

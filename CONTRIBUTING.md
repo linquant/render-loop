@@ -18,7 +18,8 @@ composer test      # PHPUnit
 composer phpstan   # PHPStan, level 8
 ```
 
-Both must be green. CI runs the same commands on PHP 8.2, 8.3 and 8.4.
+Both must be green. CI runs the same commands on PHP 7.4, 8.0, 8.1, 8.2,
+8.3, 8.4 and 8.5.
 
 ## Ground rules
 

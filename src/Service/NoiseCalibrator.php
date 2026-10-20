@@ -21,8 +21,11 @@ namespace RenderLoop\Service;
  */
 final class NoiseCalibrator
 {
-    public function __construct(private readonly HtmlNormalizer $normalizer)
+    private HtmlNormalizer $normalizer;
+
+    public function __construct(HtmlNormalizer $normalizer)
     {
+        $this->normalizer = $normalizer;
     }
 
     /**
@@ -111,7 +114,10 @@ final class NoiseCalibrator
     private function directText(\DOMElement $element): string
     {
         $text = '';
-        foreach ($element->childNodes as $child) {
+        foreach (iterator_to_array($element->childNodes) as $child) {
+            if (!$child instanceof \DOMNode) {
+                continue;
+            }
             if ($child->nodeType === XML_TEXT_NODE) {
                 $text .= $child->nodeValue ?? '';
             }
@@ -130,7 +136,12 @@ final class NoiseCalibrator
             return '';
         }
         $pairs = [];
-        foreach ($element->attributes as $attribute) {
+        $attributes = $element->attributes;
+        for ($i = 0; $i < $attributes->length; $i++) {
+            $attribute = $attributes->item($i);
+            if (!$attribute instanceof \DOMAttr) {
+                continue;
+            }
             $pairs[$attribute->nodeName] = (string) $attribute->nodeValue;
         }
         ksort($pairs);

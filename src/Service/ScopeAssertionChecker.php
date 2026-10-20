@@ -16,10 +16,16 @@ namespace RenderLoop\Service;
  */
 final class ScopeAssertionChecker
 {
+    private NormalizerConfig $config;
+
+    private HtmlDiffer $differ;
+
     public function __construct(
-        private readonly NormalizerConfig $config,
-        private readonly HtmlDiffer $differ,
+        NormalizerConfig $config,
+        HtmlDiffer $differ
     ) {
+        $this->config = $config;
+        $this->differ = $differ;
     }
 
     /**

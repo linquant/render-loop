@@ -20,12 +20,24 @@ use RenderLoop\Model\GoldenManifest;
  */
 final class GoldenMaster
 {
+    private HtmlDiffer $differ;
+
+    private string $goldenRootDir;
+
+    private int $calibrationDelayMicros = 0;
+
+    private ?NormalizerConfig $baseConfig = null;
+
     public function __construct(
-        private readonly HtmlDiffer $differ,
-        private readonly string $goldenRootDir,
-        private readonly int $calibrationDelayMicros = 0,
-        private readonly ?NormalizerConfig $baseConfig = null,
+        HtmlDiffer $differ,
+        string $goldenRootDir,
+        int $calibrationDelayMicros = 0,
+        ?NormalizerConfig $baseConfig = null
     ) {
+        $this->differ = $differ;
+        $this->goldenRootDir = $goldenRootDir;
+        $this->calibrationDelayMicros = $calibrationDelayMicros;
+        $this->baseConfig = $baseConfig;
     }
 
     public function record(GoldenManifest $manifest, CaptureStrategy $strategy): void

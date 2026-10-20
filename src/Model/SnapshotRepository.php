@@ -14,8 +14,11 @@ use RenderLoop\Service\UrlFolderNamer;
  */
 final class SnapshotRepository
 {
-    public function __construct(private readonly string $rootDir)
+    private string $rootDir;
+
+    public function __construct(string $rootDir)
     {
+        $this->rootDir = $rootDir;
     }
 
     public function save(Snapshot $snapshot): string
@@ -41,8 +44,8 @@ final class SnapshotRepository
             return null;
         }
 
-        $folder = substr($id, 0, $position);
-        $key = substr($id, $position + 1);
+        $folder = (string) substr($id, 0, $position);
+        $key = (string) substr($id, $position + 1);
         $file = $this->rootDir . '/' . $folder . '/' . $key . '.json';
 
         return $this->read($file);
@@ -62,7 +65,7 @@ final class SnapshotRepository
             }
         }
 
-        usort($snapshots, static fn(Snapshot $a, Snapshot $b): int => $b->capturedAt <=> $a->capturedAt);
+        usort($snapshots, static fn (Snapshot $a, Snapshot $b): int => $b->capturedAt <=> $a->capturedAt);
 
         return $snapshots;
     }

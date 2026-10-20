@@ -87,11 +87,15 @@ class HtmlCompareServiceTest extends TestCase
         $recente = $service->capture($url, new PushedHtmlStrategy('<p>v2</p>'), 'avant');
 
         // Par défaut, la plus récente non-recheck est la référence.
-        self::assertSame($recente->id(), $service->latestBaseline($url)?->id());
+        $implicite = $service->latestBaseline($url);
+        self::assertNotNull($implicite);
+        self::assertSame($recente->id(), $implicite->id());
 
         // On fige explicitement l'ancienne comme référence.
         $service->setBaseline($url, $ancienne->id());
-        self::assertSame($ancienne->id(), $service->latestBaseline($url)?->id());
+        $explicite = $service->latestBaseline($url);
+        self::assertNotNull($explicite);
+        self::assertSame($ancienne->id(), $explicite->id());
     }
 
     public function testSupprimerUneCapture(): void
