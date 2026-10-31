@@ -374,6 +374,42 @@ class HtmlCompareCommandTest extends TestCase
         self::assertFalse($out['assertion']['inside_scope_changed']);
     }
 
+    public function testGoldenVerifyJsonExposeUnPayloadParCas(): void
+    {
+        // Un golden manquant suffit à exercer la sortie JSON sans aucune capture
+        // réseau : verify() renvoie « missing » avant de toucher l'URL.
+        $goldenDir = $this->dir . '/golden';
+        mkdir($goldenDir, 0775, true);
+        file_put_contents(
+            $goldenDir . '/shop.json',
+            '{"name":"shop","cases":[{"id":"accueil","url":"http://localhost/shop.php"}],"mask":[]}'
+        );
+
+        $tester = new CommandTester(new HtmlCompareCommand());
+        $tester->execute([
+            '--action' => 'golden-verify',
+            '--suite' => 'shop',
+            '--golden-dir' => $goldenDir,
+            '--format' => 'json',
+        ]);
+
+        // Régression golden => code de sortie non nul.
+        self::assertNotSame(0, $tester->getStatusCode());
+
+        $display = $tester->getDisplay();
+        /** @var array{status: string, changed: int, missing: int, cases: list<array{id: string, status: string, summary: mixed, diff: mixed}>} $out */
+        $out = json_decode($display, true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('regression', $out['status']);
+        self::assertSame(0, $out['changed']);
+        self::assertSame(1, $out['missing']);
+        self::assertCount(1, $out['cases']);
+        self::assertSame('accueil', $out['cases'][0]['id']);
+        self::assertSame('missing', $out['cases'][0]['status']);
+        self::assertNull($out['cases'][0]['summary']);
+        self::assertNull($out['cases'][0]['diff']);
+    }
+
     /**
      * @param list<string> $noise
      */

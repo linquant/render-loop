@@ -11,6 +11,7 @@ use RenderLoop\Service\Change;
 use RenderLoop\Service\CurlCaptureStrategy;
 use RenderLoop\Service\DiffResult;
 use RenderLoop\Service\GitRevision;
+use RenderLoop\Service\GoldenCaseResult;
 use RenderLoop\Service\GoldenMaster;
 use RenderLoop\Service\HtmlCompareService;
 use RenderLoop\Service\HtmlDiffer;
@@ -94,7 +95,7 @@ directly — no browser needed; --ajax adds the X-Requested-With header):
 
 <info>Golden master (legacy pages without tests):</info>
   golden-record --suite=page   pin the current rendered output of the cases in golden/page.json
-  golden-verify --suite=page   re-capture and compare to the golden (exit != 0 on render regression)
+  golden-verify --suite=page   re-capture and compare to the golden (exit != 0 on render regression; -f json for a per-case payload)
 
 <info>Authenticated pages:</info> pass the session cookie value via the RENDERLOOP_COOKIE
 environment variable (never as a CLI argument, which would be visible in `ps`):
@@ -436,7 +437,7 @@ HELP);
                     'summary' => 'Re-capture each case of a suite and compare to its golden; fails on any render drift.',
                     'required' => ['suite'],
                     'optional' => ['golden-dir', 'config', 'dir', 'format', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
-                    'output' => 'text/json per case (OK / CHANGED + summary / missing).',
+                    'output' => 'text: OK / CHANGED + summary / missing per case. With -f json: {"status":"ok|regression","changed":int,"missing":int,"cases":[{"id":string,"status":"ok|changed|missing","summary":<a diff summary>|null,"diff":string|null}]} (summary/diff are null for ok/missing cases).',
                     'exit_code' => 'non-zero if any case changed or is missing a golden; 0 when all match.',
                 ],
             ],
@@ -529,6 +530,10 @@ HELP);
         $manifest = GoldenManifest::fromJsonFile($this->manifestPath($input));
         $results = $this->goldenMaster($input)->verify($manifest, $this->curlStrategy($input));
 
+        if ($this->isJson($input)) {
+            return $this->renderGoldenVerifyJson($results, $output);
+        }
+
         $changed = 0;
         $missing = 0;
         foreach ($results as $result) {
@@ -559,6 +564,44 @@ HELP);
         $output->writeln("<error>Golden regression</error>: {$changed} changed case(s), {$missing} missing golden(s).");
 
         return self::FAILURE;
+    }
+
+    /**
+     * Rendu machine de `golden-verify` : un objet par cas
+     * (`{id, status, summary, diff}`) sous `cases`, plus un verdict global.
+     * `summary`/`diff` valent `null` pour un cas `ok` ou `missing` (pas de diff).
+     *
+     * @param list<GoldenCaseResult> $results
+     */
+    private function renderGoldenVerifyJson(array $results, OutputInterface $output): int
+    {
+        $changed = 0;
+        $missing = 0;
+        $cases = [];
+        foreach ($results as $result) {
+            if ($result->status === 'missing') {
+                $missing++;
+            } elseif ($result->status !== 'ok') {
+                $changed++;
+            }
+
+            $cases[] = [
+                'id' => $result->id,
+                'status' => $result->status,
+                'summary' => $result->diff !== null ? $result->diff->summary() : null,
+                'diff' => $result->diff !== null ? $result->diff->unifiedDiff : null,
+            ];
+        }
+
+        $regression = $changed > 0 || $missing > 0;
+        $output->writeln($this->json([
+            'status' => $regression ? 'regression' : 'ok',
+            'changed' => $changed,
+            'missing' => $missing,
+            'cases' => $cases,
+        ]));
+
+        return $regression ? self::FAILURE : self::SUCCESS;
     }
 
     private function goldenMaster(InputInterface $input): GoldenMaster
