@@ -140,6 +140,29 @@ class SnapshotRepositoryTest extends TestCase
         self::assertFileExists($cible);
     }
 
+    /**
+     * #24 (régression) : la protection anti-traversée ne doit pas sur-bloquer un
+     * id légitime. `UrlFolderNamer` conserve les points, donc un dossier peut
+     * contenir `..` (ex. `foo..php`) ou commencer par un point (ex. `.env.php`)
+     * sans aucune remontée de répertoire. save() les écrit : get() et delete()
+     * doivent pouvoir les relire et les effacer.
+     */
+    public function testIdsLegitimesAvecPointsRestentAccessibles(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+
+        foreach (['foo..php', '.env.php'] as $folder) {
+            $snapshot = new Snapshot('https://app.local/x', 1000.0, '<p>ok</p>', $folder);
+            $id = $repo->save($snapshot);
+
+            $relu = $repo->get($id);
+            self::assertNotNull($relu, "get() doit relire l'id légitime {$id}");
+            self::assertSame('<p>ok</p>', $relu->html);
+            self::assertTrue($repo->delete($id), "delete() doit effacer l'id légitime {$id}");
+            self::assertNull($repo->get($id));
+        }
+    }
+
     public function testListeFiltreParPage(): void
     {
         $repo = new SnapshotRepository($this->dir);
