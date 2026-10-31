@@ -117,4 +117,56 @@ class NoiseCalibratorTest extends TestCase
 
         self::assertSame(['.ts'], $this->calibrator()->calibrate($a, $b));
     }
+
+    public function testUneInsertionStructurelleNInterromptPasLaDetectionDuBruitSuivant(): void
+    {
+        // B insère un bandeau avant l'horodatage : le décalage ne doit pas masquer
+        // le bruit (l'horodatage volatil) situé APRÈS l'insertion. Le bandeau lui-même,
+        // présent dans une capture et pas l'autre, EST du bruit structurel → proposé.
+        $a = '<main id="contenu"><span class="horodatage">10:00:01</span></main>';
+        $b = '<main id="contenu"><div class="bandeau">Promo</div><span class="horodatage">10:00:02</span></main>';
+
+        self::assertSame(['.bandeau', '.horodatage'], $this->calibrator()->calibrate($a, $b));
+    }
+
+    public function testUneInsertionMultiElementsPorteuseDEnfantsNeCreePasDeFauxPositif(): void
+    {
+        // Cas réaliste : B insère un bloc promo PORTEUR D'ENFANTS (pas un simple div
+        // vide) avant le contenu stable. L'appariement par keyPath doit :
+        //  - NE PAS proposer l'élément stable `#stable` (aucune dérive) ;
+        //  - retrouver le bruit (`.horodatage`) situé APRÈS l'insertion ;
+        //  - proposer le bloc structurel inséré (`.promo`).
+        $a = '<main id="contenu">'
+            . '<p id="stable">Prix : 1295.00</p>'
+            . '<span class="horodatage">10:00:01</span>'
+            . '</main>';
+        $b = '<main id="contenu">'
+            . '<aside class="promo"><strong>Offre</strong><a href="/x">voir</a></aside>'
+            . '<p id="stable">Prix : 1295.00</p>'
+            . '<span class="horodatage">10:00:02</span>'
+            . '</main>';
+
+        $selecteurs = $this->calibrator()->calibrate($a, $b);
+
+        self::assertNotContains('#stable', $selecteurs, 'un élément stable ne doit pas être proposé comme bruit');
+        self::assertContains('.horodatage', $selecteurs, 'le bruit après l\'insertion doit rester détecté');
+        self::assertContains('.promo', $selecteurs, 'le bloc inséré est du bruit structurel et doit être proposé');
+    }
+
+    public function testUnePageLourdementRestructureeNeInondePasLeMasque(): void
+    {
+        // Restructuration massive (tags entièrement remplacés) : aucun appariement
+        // possible, donc une avalanche de candidats positionnels peu fiables. Le
+        // garde-fou renonce (`[]`) plutôt que d'inonder le masque.
+        $lignesA = '';
+        $lignesB = '';
+        for ($n = 0; $n < 60; $n++) {
+            $lignesA .= '<p>ligne ' . $n . '</p>';
+            $lignesB .= '<div>bloc ' . $n . '</div>';
+        }
+        $a = '<main id="contenu">' . $lignesA . '</main>';
+        $b = '<main id="contenu">' . $lignesB . '</main>';
+
+        self::assertSame([], $this->calibrator()->calibrate($a, $b));
+    }
 }

@@ -16,11 +16,21 @@ namespace RenderLoop\Service;
  * `tag[name="…"]`, sinon un chemin positionnel `…:nth-of-type(n)` (dernier
  * recours, plus fragile — à relire avant de figer dans un masque).
  *
- * Les captures portant sur la MÊME page inchangée, leur structure est identique :
- * un parcours positionnel des éléments est valide (on s'arrête si elle diverge).
+ * Les captures portant sur la MÊME page, leur structure est presque identique. On
+ * APPARIE les éléments des deux captures par un chemin d'identité stable (`keyPath` :
+ * suite de `:nth-of-type` ancrée sur un `#id`), comme {@see ChangeExtractor::textRuns}
+ * le fait déjà — plutôt que de réécrire à la main un alignement de séquences (double
+ * curseur), fragile et source de faux positifs. Une insertion/suppression locale
+ * (bandeau, barre de debug, bloc promo qui tourne) ne décale pas le `nth-of-type` des
+ * éléments d'un AUTRE tag : leur appariement est conservé et le bruit situé après
+ * reste détecté. Le bloc inséré/retiré lui-même EST du bruit non déterministe : il est
+ * proposé (ADDED/REMOVED). Au-delà de {@see self::MAX_CANDIDATES} candidats — page
+ * vraiment restructurée — on renonce (`[]`) plutôt que d'inonder le masque.
  */
 final class NoiseCalibrator
 {
+    private const MAX_CANDIDATES = 50;
+
     private HtmlNormalizer $normalizer;
 
     public function __construct(HtmlNormalizer $normalizer)
@@ -54,29 +64,109 @@ final class NoiseCalibrator
             return [];
         }
 
-        $elementsA = $this->elements($docA);
-        $elementsB = $this->elements($docB);
-        $count = min(count($elementsA), count($elementsB));
-
-        // Les candidats sont synthétisés sur les éléments de A : on construit sa
-        // table de fréquence une seule fois (un parcours) au lieu de rescanner le
-        // document pour chaque élément bruité.
+        // Les candidats sont synthétisés sur les éléments de leur propre document :
+        // on construit la table de fréquence de chaque capture une seule fois (un
+        // parcours) au lieu de rescanner le document pour chaque élément bruité. Le
+        // sélecteur d'un nœud de B (modifié ou ajouté) doit être jugé unique DANS B,
+        // celui d'un nœud retiré, unique dans A — sinon un bloc inséré propre à B
+        // (ex. `.bandeau`) serait rejeté par la fréquence de A où il n'existe pas.
         $frequenciesA = $this->frequencies($docA);
+        $frequenciesB = $this->frequencies($docB);
+
+        // Appariement par chemin d'identité (keyPath), robuste à l'insertion, plutôt
+        // qu'un double curseur glouton. Chaque run = la signature (texte direct +
+        // attributs propres) de l'élément à ce chemin. On passe la table de fréquence
+        // des `id` : keyPath n'ancre que sur un `id` UNIQUE (HTML malformé, que ce
+        // codebase traite : deux éléments de même `id` doivent rester appariés
+        // séparément par leur position, sinon le volatil est écrasé par le stable).
+        $runsA = $this->runs($docA, $frequenciesA['id']);
+        $runsB = $this->runs($docB, $frequenciesB['id']);
 
         $selectors = [];
-        for ($i = 0; $i < $count; $i++) {
-            $a = $elementsA[$i];
-            $b = $elementsB[$i];
-            if ($a->tagName !== $b->tagName) {
-                break; // structure divergente : le parcours positionnel n'est plus fiable
-            }
-            if ($this->directText($a) !== $this->directText($b)
-                || $this->attributesSignature($a) !== $this->attributesSignature($b)) {
-                $selectors[] = $this->selectorFor($a, $frequenciesA);
+
+        // Ordre du document « B » : signature modifiée (même chemin, contenu dérivé)
+        // ou nœud AJOUTÉ (chemin absent de A — un bloc inséré, donc du bruit).
+        // Appariement par keyPath (#26) ; le sélecteur émis garde les garde-fous
+        // d'unicité de #17 via la table de fréquences de B.
+        foreach ($runsB as $path => $run) {
+            if (!isset($runsA[$path]) || $runsA[$path]['signature'] !== $run['signature']) {
+                $selectors[] = $this->selectorFor($run['element'], $frequenciesB);
             }
         }
 
+        // Puis les nœuds RETIRÉS (présents dans A, absents de B).
+        foreach ($runsA as $path => $run) {
+            if (!isset($runsB[$path])) {
+                $selectors[] = $this->selectorFor($run['element'], $frequenciesA);
+            }
+        }
+
+        // Garde-fou : une page vraiment restructurée produit une avalanche de
+        // candidats positionnels peu fiables — on renonce plutôt que d'inonder le
+        // masque (même cascade que ChangeExtractor::MAX_CHANGES).
+        if (count($selectors) > self::MAX_CANDIDATES) {
+            return [];
+        }
+
         return $selectors;
+    }
+
+    /**
+     * Un run par élément, indexé par son chemin d'identité stable ({@see keyPath}).
+     * La signature combine le texte direct et les attributs propres : deux éléments
+     * de même chemin sont « identiques » ssi leurs signatures coïncident.
+     *
+     * @param array<string,int> $idCounts fréquence de chaque `id` dans le document
+     * @return array<string, array{signature: string, element: \DOMElement}>
+     */
+    private function runs(\DOMDocument $document, array $idCounts): array
+    {
+        $runs = [];
+        foreach ($this->elements($document) as $element) {
+            $path = $this->keyPath($element, $idCounts);
+            if ($path === '') {
+                continue; // html/body : pas d'identité propre
+            }
+            $runs[$path] = [
+                'signature' => $this->directText($element) . "\0" . $this->attributesSignature($element),
+                'element' => $element,
+            ];
+        }
+
+        return $runs;
+    }
+
+    /**
+     * Chemin d'IDENTITÉ stable d'un élément, pour l'APPARIER entre deux captures (pas
+     * pour le masquer) : ancré sur le premier `#id` rencontré en remontant, sinon une
+     * suite de `tag:nth-of-type(n)` jusqu'à `body`. Insérer/retirer un bloc d'un AUTRE
+     * tag ne change pas le `nth-of-type` des éléments suivants, donc leur appariement
+     * est conservé. `html`/`body` n'ont pas d'identité propre → chaîne vide (ignorés).
+     * On n'ancre que sur un `id` UNIQUE : un `id` dupliqué (HTML malformé) n'identifie
+     * rien et ferait collisionner deux éléments distincts sur le même chemin.
+     *
+     * @param array<string,int> $idCounts fréquence de chaque `id` dans le document
+     */
+    private function keyPath(\DOMElement $element, array $idCounts): string
+    {
+        $parts = [];
+        $node = $element;
+
+        while ($node instanceof \DOMElement) {
+            $tag = strtolower($node->tagName);
+            if ($tag === 'html' || $tag === 'body') {
+                break;
+            }
+            $id = $node->getAttribute('id');
+            if ($id !== '' && ($idCounts[$id] ?? 0) === 1) {
+                array_unshift($parts, '#' . $id);
+                break;
+            }
+            array_unshift($parts, $tag . ':nth-of-type(' . $this->indexOfType($node) . ')');
+            $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
+        }
+
+        return implode(' > ', $parts);
     }
 
     private function load(string $html): ?\DOMDocument
