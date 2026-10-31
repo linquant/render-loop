@@ -32,6 +32,35 @@ class SnapshotRepositoryTest extends TestCase
         }
     }
 
+    /**
+     * Régression (flaky) : deux captures au MÊME instant (`capturedAt` identique,
+     * à 0,1 ms près — le cas capture → recontrôle en mémoire) mais de contenu
+     * différent ne doivent pas partager la même clé et s'écraser. Sans le hash de
+     * contenu dans la clé, la seconde écrasait la première et `latest()` ne voyait
+     * plus qu'une capture, faisant « disparaître » la baseline.
+     */
+    public function testDeuxCapturesAuMemeInstantNeSEcrasentPas(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $url = 'https://app.local/p.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $instant = 1_700_000_000.1234;
+
+        $baseline = new Snapshot($url, $instant, '<p>avant</p>', $folder, 'avant');
+        $recheck = new Snapshot($url, $instant, '<p>apres</p>', $folder, 'recheck');
+
+        self::assertNotSame($baseline->id(), $recheck->id(), 'clés identiques → écrasement');
+
+        $idBaseline = $repo->save($baseline);
+        $repo->save($recheck);
+
+        // Les deux fichiers coexistent, et la baseline reste relisable telle quelle.
+        self::assertCount(2, glob($this->dir . '/' . $folder . '/*.json') ?: []);
+        $relu = $repo->get($idBaseline);
+        self::assertNotNull($relu);
+        self::assertSame('<p>avant</p>', $relu->html);
+    }
+
     public function testSauveEtRelitAvecSesMetadonnees(): void
     {
         $repo = new SnapshotRepository($this->dir);
