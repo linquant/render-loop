@@ -80,6 +80,7 @@ final class ChangeExtractor
         }
 
         $dom = $this->load($html);
+        $idCounts = $this->idCounts($dom);
         $runs = [];
 
         foreach ($dom->getElementsByTagName('*') as $el) {
@@ -87,18 +88,41 @@ final class ChangeExtractor
             if ($text === '') {
                 continue;
             }
-            $selector = $this->selector($el);
-            if ($selector === '') {
+            $paths = $this->paths($el, $idCounts);
+            if ($paths['selector'] === '') {
                 continue;
             }
-            $runs[$selector] = [
+            // Indexé par la `key` d'alignement, jamais par le `selector` lisible :
+            // deux frères qui partagent une classe — ou un id dupliqué — produisent
+            // le même `selector`, et l'indexer par cette chaîne ferait écraser les
+            // précédents par le dernier (#20). Voir {@see self::paths()}.
+            $runs[$paths['key']] = [
                 'text' => $text,
-                'selector' => $selector,
+                'selector' => $paths['selector'],
                 'context' => $this->context($el),
             ];
         }
 
         return $runs;
+    }
+
+    /**
+     * Nombre d'occurrences de chaque `id` dans le document. Sert à n'ancrer la
+     * clé d'alignement que sur un id RÉELLEMENT unique (voir {@see self::paths()}).
+     *
+     * @return array<string, int>
+     */
+    private function idCounts(\DOMDocument $dom): array
+    {
+        $counts = [];
+        foreach ($dom->getElementsByTagName('*') as $el) {
+            $id = $el->getAttribute('id');
+            if ($id !== '') {
+                $counts[$id] = ($counts[$id] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
     }
 
     private function load(string $html): \DOMDocument
@@ -135,13 +159,33 @@ final class ChangeExtractor
     }
 
     /**
-     * Chemin CSS best-effort. S'arrête (et s'ancre) sur le premier `#id` rencontré
-     * en remontant ; sinon `tag.classe` quand il y a des classes, sinon
-     * `tag:nth-of-type(n)`. `html`/`body` sont omis pour rester court.
+     * Calcule en UNE SEULE remontée d'ancêtres la `key` d'alignement et le
+     * `selector` lisible d'un élément. Les deux partageaient auparavant deux
+     * descentes quasi identiques (et deux appels à {@see self::positionSuffix()}
+     * par niveau) ; ici le `positionSuffix` d'un niveau est calculé au plus une
+     * fois et réutilisé. `html`/`body` sont omis pour rester court.
+     *
+     * Deux ancrages distincts, d'où la légère asymétrie ci-dessous :
+     *  - le `selector` (lisible) s'ancre — et s'arrête — sur le PREMIER `#id`
+     *    rencontré ; sinon `tag.classe`, sinon `tag:nth-of-type(n)` ;
+     *  - la `key` (indexation/alignement) ne s'ancre que sur un id RÉELLEMENT
+     *    unique dans le document. Un id dupliqué (HTML legacy invalide) retombe
+     *    sur le positionnel, sans quoi deux frères à id dupliqué partageraient la
+     *    clé et le dernier écraserait le premier → `changes[]` raterait la
+     *    modification (#20). Ancrer la clé sur un id unique rend le sous-arbre
+     *    INDÉPENDANT de la position de ses ancêtres : insérer un frère de même
+     *    balise plus haut ne décale plus le `nth-of-type` du conteneur à id et ne
+     *    cascade donc plus en faux couples REMOVED+ADDED chez tous ses descendants
+     *    (#32).
+     *
+     * @param array<string, int> $idCounts occurrences de chaque id dans le document
+     * @return array{selector: string, key: string}
      */
-    private function selector(\DOMElement $el): string
+    private function paths(\DOMElement $el, array $idCounts): array
     {
-        $parts = [];
+        $selectorParts = [];
+        $keyParts = [];
+        $selectorSealed = false;
         $node = $el;
 
         while ($node instanceof \DOMElement) {
@@ -151,23 +195,49 @@ final class ChangeExtractor
             }
 
             $id = $node->getAttribute('id');
-            if ($id !== '') {
-                array_unshift($parts, '#' . $id);
+            $uniqueId = $id !== '' && ($idCounts[$id] ?? 0) === 1;
+            $position = null; // positionSuffix() partagé, calculé au plus une fois par niveau.
+
+            // --- clé d'alignement ---
+            if ($uniqueId) {
+                array_unshift($keyParts, '#' . $id);
+            } else {
+                $position = $this->positionSuffix($node);
+                array_unshift($keyParts, $tag . $position);
+            }
+
+            // --- selector lisible (figé sur le premier id, dupliqué ou non) ---
+            if (!$selectorSealed) {
+                if ($id !== '') {
+                    array_unshift($selectorParts, '#' . $id);
+                    $selectorSealed = true;
+                } else {
+                    $class = $this->collapse($node->getAttribute('class'));
+                    if ($class !== '') {
+                        array_unshift($selectorParts, $tag . '.' . implode('.', explode(' ', $class)));
+                    } else {
+                        if ($position === null) {
+                            $position = $this->positionSuffix($node);
+                        }
+                        array_unshift($selectorParts, $tag . $position);
+                    }
+                }
+            }
+
+            // Clé ancrée (id unique) ⇒ selector ancré sur le même id ⇒ terminé.
+            // Sur un id dupliqué, la clé continue en positionnel vers le haut
+            // alors que le selector reste figé.
+            if ($uniqueId) {
                 break;
             }
 
-            $class = $this->collapse($node->getAttribute('class'));
-            if ($class !== '') {
-                $segment = $tag . '.' . implode('.', explode(' ', $class));
-            } else {
-                $segment = $tag . $this->positionSuffix($node);
-            }
-
-            array_unshift($parts, $segment);
             $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
         }
 
-        return implode(' > ', $parts);
+        return [
+            'selector' => implode(' > ', $selectorParts),
+            'key' => implode(' > ', $keyParts),
+        ];
     }
 
     /**
