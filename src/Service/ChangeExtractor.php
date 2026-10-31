@@ -35,28 +35,35 @@ final class ChangeExtractor
     private const CONTEXT_MAX_LEN = 60;
 
     /**
-     * Cache des positions `nth-of-type`, rempli en UN passage par parent plutôt
-     * qu'en rebalayant les frères à chaque élément (évite le O(n²) sur les gros
-     * tableaux, #25). Clé : `spl_object_id` de l'élément ; valeur : sa position.
-     * Réinitialisé à chaque {@see self::textRuns()} car les ids d'objets DOM sont
-     * recyclés d'un document à l'autre.
+     * Compteur d'observabilité : nombre total de nœuds frères visités par
+     * {@see self::positionSuffix()} sur le dernier {@see self::extract()}. Scalaire
+     * monotone, remis à zéro au début d'`extract()` — il ne dépend d'aucun
+     * `spl_object_id` et ne peut donc pas devenir obsolète. Exposé via
+     * {@see self::siblingVisits()} pour que la garde anti-régression de #25
+     * s'appuie sur un compte d'opérations déterministe plutôt que sur un temps
+     * mural (flaky sous CI/xdebug).
      *
-     * @var array<int, int>
+     * @var int
      */
-    private $nthCache = [];
+    private $siblingVisits = 0;
 
     /**
-     * Parents déjà indexés dans {@see self::$nthCache} (clé : `spl_object_id`).
-     *
-     * @var array<int, bool>
+     * Nombre de nœuds frères visités lors du dernier {@see self::extract()}.
+     * Linéaire en la taille des documents tant que le cache de positions fait son
+     * office ; un retour à la complexité quadratique de #25 le ferait exploser.
      */
-    private $indexedParents = [];
+    public function siblingVisits(): int
+    {
+        return $this->siblingVisits;
+    }
 
     /**
      * @return list<Change>
      */
     public function extract(string $normalizedBefore, string $normalizedAfter): array
     {
+        $this->siblingVisits = 0;
+
         $before = $this->textRuns($normalizedBefore);
         $after = $this->textRuns($normalizedAfter);
 
@@ -103,10 +110,14 @@ final class ChangeExtractor
         $dom = $this->load($html);
         $runs = [];
 
-        // Caches liés à CE document : on repart de zéro (les `spl_object_id` d'un
-        // document libéré sont réattribués au suivant).
-        $this->nthCache = [];
-        $this->indexedParents = [];
+        // Caches de positions `nth-of-type` LOCAUX à cette passe (= à ce document),
+        // threadés par référence dans selector()/positionSuffix(). Les garder locaux
+        // plutôt qu'en propriétés d'instance rend leur durée de vie structurelle :
+        // ils naissent et meurent avec la passe, donc aucun `spl_object_id` d'un
+        // document libéré (et recyclé) ne peut subsister, et aucune carte O(n) n'est
+        // retenue après coup par une instance réutilisée.
+        $nthCache = [];
+        $indexedParents = [];
 
         // Matérialisé en tableau pour garder chaque nœud référencé pendant toute la
         // passe : sans ça PHP libère les wrappers DOM au fil de l'itération et leurs
@@ -118,7 +129,7 @@ final class ChangeExtractor
             if ($text === '') {
                 continue;
             }
-            $selector = $this->selector($el);
+            $selector = $this->selector($el, $nthCache, $indexedParents);
             if ($selector === '') {
                 continue;
             }
@@ -169,8 +180,11 @@ final class ChangeExtractor
      * Chemin CSS best-effort. S'arrête (et s'ancre) sur le premier `#id` rencontré
      * en remontant ; sinon `tag.classe` quand il y a des classes, sinon
      * `tag:nth-of-type(n)`. `html`/`body` sont omis pour rester court.
+     *
+     * @param array<int, int>  $nthCache       cache de positions, threadé par la passe
+     * @param array<int, bool> $indexedParents parents déjà indexés, threadé par la passe
      */
-    private function selector(\DOMElement $el): string
+    private function selector(\DOMElement $el, array &$nthCache, array &$indexedParents): string
     {
         $parts = [];
         $node = $el;
@@ -191,7 +205,7 @@ final class ChangeExtractor
             if ($class !== '') {
                 $segment = $tag . '.' . implode('.', explode(' ', $class));
             } else {
-                $segment = $tag . $this->positionSuffix($node);
+                $segment = $tag . $this->positionSuffix($node, $nthCache, $indexedParents);
             }
 
             array_unshift($parts, $segment);
@@ -214,8 +228,11 @@ final class ChangeExtractor
      * pour chaque élément du chemin dans {@see self::selector()}) sont alors en
      * O(1). Avant (#25), chaque appel rebalayait tous les frères → O(n²) et plusieurs
      * secondes sur un tableau de milliers de lignes.
+     *
+     * @param array<int, int>  $nthCache       cache de positions, threadé par la passe
+     * @param array<int, bool> $indexedParents parents déjà indexés, threadé par la passe
      */
-    private function positionSuffix(\DOMElement $node): string
+    private function positionSuffix(\DOMElement $node, array &$nthCache, array &$indexedParents): string
     {
         $parent = $node->parentNode;
         if (!$parent instanceof \DOMNode) {
@@ -223,20 +240,24 @@ final class ChangeExtractor
         }
 
         $parentId = spl_object_id($parent);
-        if (!isset($this->indexedParents[$parentId])) {
+        if (!isset($indexedParents[$parentId])) {
             $counts = [];
             foreach ($parent->childNodes as $sibling) {
+                // Compte d'opérations déterministe : un seul balayage par parent
+                // (grâce au cache) ⇒ total linéaire ; un retour au O(n²) le ferait
+                // exploser. C'est sur lui que s'appuie la garde de #25.
+                $this->siblingVisits++;
                 if (!$sibling instanceof \DOMElement) {
                     continue;
                 }
                 $tag = $sibling->tagName;
                 $counts[$tag] = ($counts[$tag] ?? 0) + 1;
-                $this->nthCache[spl_object_id($sibling)] = $counts[$tag];
+                $nthCache[spl_object_id($sibling)] = $counts[$tag];
             }
-            $this->indexedParents[$parentId] = true;
+            $indexedParents[$parentId] = true;
         }
 
-        $position = $this->nthCache[spl_object_id($node)] ?? 1;
+        $position = $nthCache[spl_object_id($node)] ?? 1;
 
         return ':nth-of-type(' . $position . ')';
     }

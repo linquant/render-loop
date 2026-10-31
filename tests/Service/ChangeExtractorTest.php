@@ -140,11 +140,16 @@ class ChangeExtractorTest extends TestCase
      * quadratique (plusieurs secondes, voire bien plus, avant le correctif). La
      * structure `dl` est choisie à dessein pour que l'ancre `context` reste en O(1)
      * (le `dt` frère précédent est trouvé immédiatement), de sorte que ce test isole
-     * le passage corrigé. Avec le calcul mémorisé en un passage par parent, le temps
-     * est linéaire et négligeable ; la borne reste large pour tenir sous charge CI
-     * (et avec xdebug actif) tout en restant hors de portée d'un retour quadratique.
+     * le passage corrigé.
+     *
+     * On asserte sur un COMPTE D'OPÉRATIONS déterministe (le nombre de frères
+     * visités, exposé par {@see ChangeExtractor::siblingVisits()}) plutôt que sur un
+     * temps mural : une borne en secondes dépend de la charge CI / de xdebug et peut
+     * flaker. Avec le cache, chaque parent n'est balayé qu'une fois, donc le total
+     * est linéaire (~2 documents × nombre d'enfants) ; un retour à la complexité
+     * quadratique de #25 le ferait bondir en O(n²), loin au-dessus de la borne.
      */
-    public function testUnGrosNombreDeFreresResteSousLaBorneDeTemps(): void
+    public function testUnGrosNombreDeFreresResteSousUneBorneLineaireDOperations(): void
     {
         $pairs = 4000;
         $before = '<dl>';
@@ -156,13 +161,25 @@ class ChangeExtractorTest extends TestCase
         $before .= '</dl>';
         $after .= '</dl>';
 
-        $start = microtime(true);
-        $changes = (new ChangeExtractor())->extract($before, $after);
-        $elapsed = microtime(true) - $start;
+        $extractor = new ChangeExtractor();
+        $changes = $extractor->extract($before, $after);
 
         self::assertCount(1, $changes);
         self::assertSame('old', $changes[0]->before);
         self::assertSame('new', $changes[0]->after);
-        self::assertLessThan(5.0, $elapsed, "Extraction trop lente ({$elapsed}s) : la complexité quadratique de positionSuffix() est probablement revenue.");
+
+        // 2 balises × $pairs enfants, sur 2 documents.
+        $elements = 2 * 2 * $pairs;
+        // Linéaire : une poignée de visites par enfant (ici ~1). La borne large
+        // absorbe les petites variations de structure ; un O(n²) ferait ~($pairs²).
+        self::assertLessThan(
+            5 * $elements,
+            $extractor->siblingVisits(),
+            sprintf(
+                'Trop de frères visités (%d pour %d éléments) : la complexité quadratique de positionSuffix() est probablement revenue.',
+                $extractor->siblingVisits(),
+                $elements
+            )
+        );
     }
 }
