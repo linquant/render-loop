@@ -92,6 +92,41 @@ class SnapshotRepositoryTest extends TestCase
         self::assertSame('<p>24,90</p>', $apres->html);
     }
 
+    /**
+     * #18 : une capture corrompue (JSON tronqué) doit lever une erreur de domaine
+     * nommant le fichier fautif, pas une JsonException « Syntax error » nue.
+     */
+    public function testUneCaptureCorrompueLeveUneErreurNommantLeFichier(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $url = 'https://app.local/p.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $dir = $this->dir . '/' . $folder;
+        mkdir($dir, 0775, true);
+        file_put_contents($dir . '/1000.0000.json', '{"url":');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('1000.0000.json');
+        $repo->list($folder);
+    }
+
+    /**
+     * #18 : l'écriture est atomique (.tmp + rename) ; aucun fichier temporaire
+     * ne doit subsister, et seul le .json final reste.
+     */
+    public function testLEcritureEstAtomiqueEtNeLaissePasDeTemporaire(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $url = 'https://app.local/p.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+
+        $id = $repo->save(Snapshot::create($url, '<p>x</p>'));
+
+        self::assertNotNull($repo->get($id));
+        self::assertSame([], glob($this->dir . '/' . $folder . '/*.tmp') ?: []);
+        self::assertCount(1, glob($this->dir . '/' . $folder . '/*.json') ?: []);
+    }
+
     public function testListeFiltreParPage(): void
     {
         $repo = new SnapshotRepository($this->dir);

@@ -30,8 +30,18 @@ final class SnapshotRepository
 
         $file = $dir . '/' . $snapshot->key() . '.json';
         $json = json_encode($snapshot->toArray(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        if (file_put_contents($file, $json) === false) {
-            throw new \RuntimeException("Écriture du snapshot échouée : {$file}");
+
+        // Écriture atomique : on écrit un fichier temporaire (suffixe `.tmp`,
+        // donc jamais listé par le glob `*.json`) puis on le renomme. Un
+        // processus interrompu (crash, disque plein) laisse au pire un `.tmp`
+        // incomplet, jamais un `.json` tronqué qui briquerait list/recheck.
+        $tmp = $file . '.' . uniqid('', true) . '.tmp';
+        if (file_put_contents($tmp, $json) === false) {
+            throw new \RuntimeException("Écriture du snapshot échouée : {$tmp}");
+        }
+        if (!rename($tmp, $file)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Renommage du snapshot échoué : {$file}");
         }
 
         return $snapshot->id();
@@ -123,8 +133,19 @@ final class SnapshotRepository
             return null;
         }
 
-        /** @var array{url?: string, timestamp?: int, html?: string, folder?: string, tag?: ?string, git_commit?: ?string} $data */
-        $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        try {
+            /** @var array{url?: string, timestamp?: int, html?: string, folder?: string, tag?: ?string, git_commit?: ?string} $data */
+            $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            // On nomme le fichier fautif : sans ça, une capture corrompue
+            // (écriture interrompue) faisait remonter un « Syntax error » brut
+            // sans indiquer quel fichier supprimer pour s'en remettre.
+            throw new \RuntimeException(
+                "Snapshot illisible, JSON invalide : {$file} ({$e->getMessage()})",
+                0,
+                $e
+            );
+        }
 
         return Snapshot::fromArray($data);
     }

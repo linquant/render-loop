@@ -156,6 +156,28 @@ class HtmlCompareCommandTest extends TestCase
         self::assertStringContainsString('--url', $tester->getErrorOutput());
     }
 
+    public function testUnSnapshotCorrompuEchoueProprementSurStderr(): void
+    {
+        // Reproduit #18 : un .json tronqué (écriture interrompue) ne doit plus
+        // faire remonter un « Syntax error » brut en exit 4, mais un message
+        // actionnable sur stderr nommant le fichier fautif, stdout vide.
+        $url = 'https://app.local/fiche.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $dir = $this->dir . '/' . $folder;
+        mkdir($dir, 0775, true);
+        file_put_contents($dir . '/1000.0000.json', '{"url":');
+
+        $tester = new CommandTester(new HtmlCompareCommand());
+        $tester->execute(
+            ['--action' => 'list', '--dir' => $this->dir],
+            ['capture_stderr_separately' => true],
+        );
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertSame('', $tester->getDisplay());
+        self::assertStringContainsString('1000.0000.json', $tester->getErrorOutput());
+    }
+
     public function testMaskAddEcritLesSelecteursDansLaConfigCiblee(): void
     {
         $config = $this->tempConfig(['.phpdebugbar']);
