@@ -64,4 +64,24 @@ class NoiseCalibratorTest extends TestCase
 
         self::assertSame(['#contenu > p:nth-of-type(1)'], $this->calibrator()->calibrate($a, $b));
     }
+
+    public function testUneClassePartageeNEstPasProposeeEtNeMasquePasUnVraiChangement(): void
+    {
+        // Deux <span class="badge"> : une horloge volatile, un prix stable. Masquer
+        // `.badge` rendrait le golden aveugle au prix — le candidat doit être unique.
+        $a = '<html><body><span class="badge">10:00:01</span><span class="badge">1295.00</span></body></html>';
+        $b = '<html><body><span class="badge">10:00:02</span><span class="badge">1295.00</span></body></html>';
+
+        $selecteurs = $this->calibrator()->calibrate($a, $b);
+
+        self::assertNotContains('.badge', $selecteurs, 'un sélecteur de classe partagée masquerait trop large');
+        self::assertCount(1, $selecteurs);
+
+        // Appliqué comme masque, le candidat laisse voir un vrai changement de prix.
+        $masque = new HtmlNormalizer(new NormalizerConfig(null, $selecteurs));
+        $avant = $masque->normalize($a);
+        $apres = $masque->normalize(str_replace('1295.00', '0.00', $b));
+
+        self::assertNotSame($avant, $apres, 'un changement réel de prix ne doit pas être masqué par la calibration');
+    }
 }

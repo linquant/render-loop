@@ -154,6 +154,14 @@ final class NoiseCalibrator
         return $signature;
     }
 
+    /**
+     * Synthétise un sélecteur qui désigne CET élément et lui seul. Un candidat de
+     * calibration doit matcher exactement UN nœud : sinon, masquer le bruit
+     * masquerait aussi d'autres éléments (deux `<span class="badge">`, l'un volatil,
+     * l'autre un prix — masquer `.badge` rendrait le golden aveugle au prix). On ne
+     * retient donc `.classe` ou `tag[name]` que s'ils sont uniques dans le document ;
+     * à défaut on retombe sur un chemin positionnel, lui toujours unique.
+     */
     private function selectorFor(\DOMElement $element): string
     {
         $id = $element->getAttribute('id');
@@ -161,30 +169,71 @@ final class NoiseCalibrator
             return '#' . $id;
         }
 
+        $owner = $element->ownerDocument;
+
         $class = trim($element->getAttribute('class'));
         if ($class !== '') {
-            return '.' . explode(' ', $class)[0];
+            $first = explode(' ', $class)[0];
+            if ($owner === null || $this->countByClass($owner, $first) === 1) {
+                return '.' . $first;
+            }
         }
 
         $name = $element->getAttribute('name');
         if ($name !== '') {
-            return $element->tagName . '[name="' . $name . '"]';
+            if ($owner === null || $this->countByName($owner, $element->tagName, $name) === 1) {
+                return $element->tagName . '[name="' . $name . '"]';
+            }
         }
 
         return $this->positionalPath($element);
     }
 
     /**
-     * Chemin CSS positionnel depuis le plus proche ancêtre à `id` (ou la racine),
-     * borné en profondeur. Dernier recours : fragile si la structure évolue.
+     * Nombre d'éléments du document portant cette classe (n'importe où dans leur
+     * liste de classes) : sert à vérifier l'unicité d'un candidat `.classe`.
+     */
+    private function countByClass(\DOMDocument $document, string $class): int
+    {
+        $count = 0;
+        foreach ($this->elements($document) as $element) {
+            $classes = preg_split('/\s+/', trim($element->getAttribute('class')));
+            if ($classes !== false && in_array($class, $classes, true)) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Nombre d'éléments de ce tag portant cet attribut `name` : unicité d'un
+     * candidat `tag[name="…"]`.
+     */
+    private function countByName(\DOMDocument $document, string $tag, string $name): int
+    {
+        $count = 0;
+        foreach ($this->elements($document) as $element) {
+            if ($element->tagName === $tag && $element->getAttribute('name') === $name) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Chemin CSS positionnel depuis le plus proche ancêtre à `id` (ou la racine).
+     * On remonte jusqu'à une ancre `id` ou la racine SANS borne de profondeur : un
+     * chemin tronqué (`span:nth-of-type(2)`) matcherait plusieurs nœuds et masquerait
+     * trop large. Dernier recours : unique, mais fragile si la structure évolue.
      */
     private function positionalPath(\DOMElement $element): string
     {
         $parts = [];
         $node = $element;
-        $depth = 0;
 
-        while ($node instanceof \DOMElement && $depth < 5) {
+        while ($node instanceof \DOMElement) {
             $id = $node->getAttribute('id');
             if ($id !== '') {
                 array_unshift($parts, '#' . $id);
@@ -193,7 +242,6 @@ final class NoiseCalibrator
             }
             array_unshift($parts, $node->tagName . ':nth-of-type(' . $this->indexOfType($node) . ')');
             $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
-            $depth++;
         }
 
         return implode(' > ', $parts);
