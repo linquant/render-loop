@@ -58,6 +58,11 @@ final class NoiseCalibrator
         $elementsB = $this->elements($docB);
         $count = min(count($elementsA), count($elementsB));
 
+        // Les candidats sont synthétisés sur les éléments de A : on construit sa
+        // table de fréquence une seule fois (un parcours) au lieu de rescanner le
+        // document pour chaque élément bruité.
+        $frequenciesA = $this->frequencies($docA);
+
         $selectors = [];
         for ($i = 0; $i < $count; $i++) {
             $a = $elementsA[$i];
@@ -67,7 +72,7 @@ final class NoiseCalibrator
             }
             if ($this->directText($a) !== $this->directText($b)
                 || $this->attributesSignature($a) !== $this->attributesSignature($b)) {
-                $selectors[] = $this->selectorFor($a);
+                $selectors[] = $this->selectorFor($a, $frequenciesA);
             }
         }
 
@@ -154,46 +159,126 @@ final class NoiseCalibrator
         return $signature;
     }
 
-    private function selectorFor(\DOMElement $element): string
+    /**
+     * Synthétise un sélecteur qui désigne CET élément et lui seul. Un candidat de
+     * calibration doit matcher exactement UN nœud : sinon, masquer le bruit
+     * masquerait aussi d'autres éléments (deux `<span class="badge">`, l'un volatil,
+     * l'autre un prix — masquer `.badge` rendrait le golden aveugle au prix ; de même
+     * une horloge et un prix partageant `id="val"` sur du HTML malformé, que ce
+     * codebase traite). On ne retient donc `#id`, `.classe` ou `tag[name]` que s'ils
+     * sont uniques dans le document ; à défaut on retombe sur un chemin positionnel,
+     * lui toujours unique.
+     *
+     * @param array{id: array<string,int>, class: array<string,int>, name: array<string,int>} $frequencies
+     */
+    private function selectorFor(\DOMElement $element, array $frequencies): string
     {
         $id = $element->getAttribute('id');
-        if ($id !== '') {
+        if ($id !== '' && ($frequencies['id'][$id] ?? 0) === 1) {
             return '#' . $id;
         }
 
         $class = trim($element->getAttribute('class'));
         if ($class !== '') {
-            return '.' . explode(' ', $class)[0];
+            $first = $this->firstClass($class);
+            if ($first !== '' && ($frequencies['class'][$first] ?? 0) === 1) {
+                return '.' . $first;
+            }
         }
 
         $name = $element->getAttribute('name');
         if ($name !== '') {
-            return $element->tagName . '[name="' . $name . '"]';
+            $key = $element->tagName . "\0" . $name;
+            if (($frequencies['name'][$key] ?? 0) === 1) {
+                return $element->tagName . '[name="' . $name . '"]';
+            }
         }
 
-        return $this->positionalPath($element);
+        return $this->positionalPath($element, $frequencies);
     }
 
     /**
-     * Chemin CSS positionnel depuis le plus proche ancêtre à `id` (ou la racine),
-     * borné en profondeur. Dernier recours : fragile si la structure évolue.
+     * Première classe de la liste, découpée sur tout blanc HTML (espace, tabulation,
+     * retour ligne) : le MÊME découpage que la table de fréquence, sinon un jeton
+     * contenant une tabulation ne se retrouverait jamais dans la table et une classe
+     * pourtant unique serait rejetée.
      */
-    private function positionalPath(\DOMElement $element): string
+    private function firstClass(string $class): string
+    {
+        $tokens = preg_split('/\s+/', trim($class));
+        if ($tokens === false || !isset($tokens[0])) {
+            return '';
+        }
+
+        return $tokens[0];
+    }
+
+    /**
+     * Table de fréquence du document, construite en UN parcours : combien d'éléments
+     * portent chaque `id`, chaque classe, chaque couple `tag`+`name`. Consultée pour
+     * vérifier qu'un candidat ne matche qu'un seul nœud, sans rescanner le document
+     * à chaque élément bruité.
+     *
+     * @return array{id: array<string,int>, class: array<string,int>, name: array<string,int>}
+     */
+    private function frequencies(\DOMDocument $document): array
+    {
+        $frequencies = ['id' => [], 'class' => [], 'name' => []];
+        foreach ($this->elements($document) as $element) {
+            $id = $element->getAttribute('id');
+            if ($id !== '') {
+                $frequencies['id'][$id] = ($frequencies['id'][$id] ?? 0) + 1;
+            }
+
+            $class = trim($element->getAttribute('class'));
+            if ($class !== '') {
+                $tokens = preg_split('/\s+/', $class);
+                if ($tokens !== false) {
+                    // Dédoublonné par élément : `.badge` compte l'élément une fois,
+                    // même si sa liste de classes répète le jeton.
+                    foreach (array_unique($tokens) as $token) {
+                        if ($token === '') {
+                            continue;
+                        }
+                        $frequencies['class'][$token] = ($frequencies['class'][$token] ?? 0) + 1;
+                    }
+                }
+            }
+
+            $name = $element->getAttribute('name');
+            if ($name !== '') {
+                $key = $element->tagName . "\0" . $name;
+                $frequencies['name'][$key] = ($frequencies['name'][$key] ?? 0) + 1;
+            }
+        }
+
+        return $frequencies;
+    }
+
+    /**
+     * Chemin CSS positionnel depuis le plus proche ancêtre à `id` UNIQUE (ou la
+     * racine). On remonte jusqu'à une ancre `id` unique ou la racine SANS borne de
+     * profondeur : un chemin tronqué (`span:nth-of-type(2)`) matcherait plusieurs
+     * nœuds et masquerait trop large. Un `id` partagé n'est pas une ancre fiable (il
+     * désignerait plusieurs sous-arbres) : on le traverse comme un nœud ordinaire.
+     * Dernier recours : unique, mais fragile si la structure évolue.
+     *
+     * @param array{id: array<string,int>, class: array<string,int>, name: array<string,int>} $frequencies
+     */
+    private function positionalPath(\DOMElement $element, array $frequencies): string
     {
         $parts = [];
         $node = $element;
-        $depth = 0;
 
-        while ($node instanceof \DOMElement && $depth < 5) {
+        while ($node instanceof \DOMElement) {
             $id = $node->getAttribute('id');
-            if ($id !== '') {
+            if ($id !== '' && ($frequencies['id'][$id] ?? 0) === 1) {
                 array_unshift($parts, '#' . $id);
 
                 return implode(' > ', $parts);
             }
             array_unshift($parts, $node->tagName . ':nth-of-type(' . $this->indexOfType($node) . ')');
             $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
-            $depth++;
         }
 
         return implode(' > ', $parts);
