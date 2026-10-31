@@ -105,4 +105,64 @@ class ChangeExtractorTest extends TestCase
 
         self::assertSame([], (new ChangeExtractor())->extract($before, $after));
     }
+
+    /**
+     * #25 : le calcul des positions `nth-of-type` est désormais mémorisé en un
+     * passage par parent. On vérifie qu'il reste EXACT avec beaucoup de frères —
+     * l'élément modifié doit toujours porter la bonne position dans son sélecteur.
+     */
+    public function testLaPositionNthOfTypeResteExacteAvecDeNombreuxFreres(): void
+    {
+        $before = '<div>';
+        $after = '<div>';
+        for ($i = 1; $i <= 6; $i++) {
+            $cell = $i === 4 ? '<p>old</p>' : "<p>p$i</p>";
+            $before .= $cell;
+            $after .= ($i === 4 ? '<p>new</p>' : "<p>p$i</p>");
+        }
+        $before .= '</div>';
+        $after .= '</div>';
+
+        $changes = (new ChangeExtractor())->extract($before, $after);
+
+        self::assertCount(1, $changes);
+        self::assertSame('div:nth-of-type(1) > p:nth-of-type(4)', $changes[0]->selector);
+        self::assertSame('old', $changes[0]->before);
+        self::assertSame('new', $changes[0]->after);
+    }
+
+    /**
+     * #25 : garde anti-régression de performance ciblée sur {@see
+     * ChangeExtractor::positionSuffix()}.
+     *
+     * On empile des milliers de frères `dt`/`dd` sous un seul parent : c'est le cas
+     * où `positionSuffix()` rebalayait TOUS les frères à chaque élément, soit un coût
+     * quadratique (plusieurs secondes, voire bien plus, avant le correctif). La
+     * structure `dl` est choisie à dessein pour que l'ancre `context` reste en O(1)
+     * (le `dt` frère précédent est trouvé immédiatement), de sorte que ce test isole
+     * le passage corrigé. Avec le calcul mémorisé en un passage par parent, le temps
+     * est linéaire et négligeable ; la borne reste large pour tenir sous charge CI
+     * (et avec xdebug actif) tout en restant hors de portée d'un retour quadratique.
+     */
+    public function testUnGrosNombreDeFreresResteSousLaBorneDeTemps(): void
+    {
+        $pairs = 4000;
+        $before = '<dl>';
+        $after = '<dl>';
+        for ($i = 0; $i < $pairs; $i++) {
+            $before .= "<dt>k$i</dt><dd>" . ($i === 0 ? 'old' : "v$i") . '</dd>';
+            $after .= "<dt>k$i</dt><dd>" . ($i === 0 ? 'new' : "v$i") . '</dd>';
+        }
+        $before .= '</dl>';
+        $after .= '</dl>';
+
+        $start = microtime(true);
+        $changes = (new ChangeExtractor())->extract($before, $after);
+        $elapsed = microtime(true) - $start;
+
+        self::assertCount(1, $changes);
+        self::assertSame('old', $changes[0]->before);
+        self::assertSame('new', $changes[0]->after);
+        self::assertLessThan(5.0, $elapsed, "Extraction trop lente ({$elapsed}s) : la complexité quadratique de positionSuffix() est probablement revenue.");
+    }
 }

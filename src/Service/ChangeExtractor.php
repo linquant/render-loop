@@ -35,6 +35,24 @@ final class ChangeExtractor
     private const CONTEXT_MAX_LEN = 60;
 
     /**
+     * Cache des positions `nth-of-type`, rempli en UN passage par parent plutôt
+     * qu'en rebalayant les frères à chaque élément (évite le O(n²) sur les gros
+     * tableaux, #25). Clé : `spl_object_id` de l'élément ; valeur : sa position.
+     * Réinitialisé à chaque {@see self::textRuns()} car les ids d'objets DOM sont
+     * recyclés d'un document à l'autre.
+     *
+     * @var array<int, int>
+     */
+    private $nthCache = [];
+
+    /**
+     * Parents déjà indexés dans {@see self::$nthCache} (clé : `spl_object_id`).
+     *
+     * @var array<int, bool>
+     */
+    private $indexedParents = [];
+
+    /**
      * @return list<Change>
      */
     public function extract(string $normalizedBefore, string $normalizedAfter): array
@@ -51,6 +69,11 @@ final class ChangeExtractor
             } elseif ($before[$path]['text'] !== $run['text']) {
                 $changes[] = new Change(Change::KIND_TEXT, $run['selector'], $run['context'], $before[$path]['text'], $run['text']);
             }
+            // Cascade : au-delà du plafond on renonce de toute façon ; on coupe
+            // court plutôt que de matérialiser toute la liste pour la jeter ensuite.
+            if (count($changes) > self::MAX_CHANGES) {
+                return [];
+            }
         }
 
         // Puis les nœuds disparus.
@@ -58,11 +81,9 @@ final class ChangeExtractor
             if (!isset($after[$path])) {
                 $changes[] = new Change(Change::KIND_REMOVED, $run['selector'], $run['context'], $run['text'], null);
             }
-        }
-
-        // Cascade : trop de changements pour un signal fiable → on renonce.
-        if (count($changes) > self::MAX_CHANGES) {
-            return [];
+            if (count($changes) > self::MAX_CHANGES) {
+                return [];
+            }
         }
 
         return $changes;
@@ -82,7 +103,17 @@ final class ChangeExtractor
         $dom = $this->load($html);
         $runs = [];
 
-        foreach ($dom->getElementsByTagName('*') as $el) {
+        // Caches liés à CE document : on repart de zéro (les `spl_object_id` d'un
+        // document libéré sont réattribués au suivant).
+        $this->nthCache = [];
+        $this->indexedParents = [];
+
+        // Matérialisé en tableau pour garder chaque nœud référencé pendant toute la
+        // passe : sans ça PHP libère les wrappers DOM au fil de l'itération et leurs
+        // `spl_object_id` sont recyclés, ce qui fausserait le cache de positions.
+        $elements = iterator_to_array($dom->getElementsByTagName('*'));
+
+        foreach ($elements as $el) {
             $text = $this->directText($el);
             if ($text === '') {
                 continue;
@@ -176,6 +207,13 @@ final class ChangeExtractor
      * le chemin STABLE : ajouter un frère ne doit pas faire basculer les autres de
      * « sans suffixe » à « avec suffixe » — ce serait une fausse cascade. Le prix
      * est un chemin un peu plus verbeux ; la contrepartie est l'alignement fiable.
+     *
+     * La position est calculée en UN SEUL balayage par parent, mémorisé dans
+     * {@see self::$nthCache} : au premier élément rencontré sous un parent, on
+     * numérote tous ses frères d'un coup. Les appels suivants pour les frères (et
+     * pour chaque élément du chemin dans {@see self::selector()}) sont alors en
+     * O(1). Avant (#25), chaque appel rebalayait tous les frères → O(n²) et plusieurs
+     * secondes sur un tableau de milliers de lignes.
      */
     private function positionSuffix(\DOMElement $node): string
     {
@@ -184,18 +222,23 @@ final class ChangeExtractor
             return '';
         }
 
-        $tag = $node->tagName;
-        $position = 0;
-        foreach ($parent->childNodes as $sibling) {
-            if ($sibling instanceof \DOMElement && $sibling->tagName === $tag) {
-                $position++;
-                if ($sibling === $node) {
-                    return ':nth-of-type(' . $position . ')';
+        $parentId = spl_object_id($parent);
+        if (!isset($this->indexedParents[$parentId])) {
+            $counts = [];
+            foreach ($parent->childNodes as $sibling) {
+                if (!$sibling instanceof \DOMElement) {
+                    continue;
                 }
+                $tag = $sibling->tagName;
+                $counts[$tag] = ($counts[$tag] ?? 0) + 1;
+                $this->nthCache[spl_object_id($sibling)] = $counts[$tag];
             }
+            $this->indexedParents[$parentId] = true;
         }
 
-        return ':nth-of-type(1)';
+        $position = $this->nthCache[spl_object_id($node)] ?? 1;
+
+        return ':nth-of-type(' . $position . ')';
     }
 
     /**
