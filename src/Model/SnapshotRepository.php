@@ -28,15 +28,21 @@ final class SnapshotRepository
             throw new \RuntimeException("Impossible de créer le dossier de snapshot : {$dir}");
         }
 
+        $this->cleanStaleTempFiles($dir);
+
         $file = $dir . '/' . $snapshot->key() . '.json';
         $json = json_encode($snapshot->toArray(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         // Écriture atomique : on écrit un fichier temporaire (suffixe `.tmp`,
-        // donc jamais listé par le glob `*.json`) puis on le renomme. Un
-        // processus interrompu (crash, disque plein) laisse au pire un `.tmp`
-        // incomplet, jamais un `.json` tronqué qui briquerait list/recheck.
+        // donc jamais listé par le glob `*.json`) puis on le renomme. `rename()`
+        // est atomique face à une interruption de processus (crash, SIGKILL) :
+        // list/recheck ne voient jamais un `.json` tronqué. On compare le nombre
+        // d'octets écrits à la taille attendue pour attraper une écriture
+        // PARTIELLE (disque plein / ENOSPC) que `=== false` laisserait passer, et
+        // on nettoie le `.tmp` dans ce cas.
         $tmp = $file . '.' . uniqid('', true) . '.tmp';
-        if (file_put_contents($tmp, $json) === false) {
+        if (file_put_contents($tmp, $json) !== strlen($json)) {
+            @unlink($tmp);
             throw new \RuntimeException("Écriture du snapshot échouée : {$tmp}");
         }
         if (!rename($tmp, $file)) {
@@ -49,16 +55,9 @@ final class SnapshotRepository
 
     public function get(string $id): ?Snapshot
     {
-        $position = strrpos($id, '_');
-        if ($position === false) {
-            return null;
-        }
+        $file = $this->fileForId($id);
 
-        $folder = (string) substr($id, 0, $position);
-        $key = (string) substr($id, $position + 1);
-        $file = $this->rootDir . '/' . $folder . '/' . $key . '.json';
-
-        return $this->read($file);
+        return $file === null ? null : $this->read($file);
     }
 
     /**
@@ -69,7 +68,16 @@ final class SnapshotRepository
         $pattern = $this->rootDir . '/' . ($folder ?? '*') . '/*.json';
         $snapshots = [];
         foreach (glob($pattern) ?: [] as $file) {
-            $snapshot = $this->read($file);
+            try {
+                $snapshot = $this->read($file);
+            } catch (\RuntimeException $e) {
+                // Un seul fichier corrompu ne doit pas masquer toutes les bonnes
+                // captures de toutes les pages : on le signale et on le saute.
+                // get()/delete() ciblent ce fichier précis et peuvent, eux, lever
+                // (get) ou le supprimer sans le décoder (delete).
+                error_log('RenderLoop: ' . $e->getMessage());
+                continue;
+            }
             if ($snapshot !== null) {
                 $snapshots[] = $snapshot;
             }
@@ -87,14 +95,45 @@ final class SnapshotRepository
 
     public function delete(string $id): bool
     {
-        $snapshot = $this->get($id);
-        if ($snapshot === null) {
-            return false;
+        // On résout le chemin sans décoder le JSON : une capture corrompue reste
+        // ainsi supprimable (le chemin est la cible, pas son contenu).
+        $file = $this->fileForId($id);
+
+        return $file !== null && is_file($file) && unlink($file);
+    }
+
+    /**
+     * Chemin du fichier .json correspondant à un id (dossier + '_' + clé), ou
+     * null si l'id est malformé. Factorisé entre get() et delete() pour que les
+     * deux ciblent exactement le même fichier.
+     */
+    private function fileForId(string $id): ?string
+    {
+        $position = strrpos($id, '_');
+        if ($position === false) {
+            return null;
         }
 
-        $file = $this->rootDir . '/' . $snapshot->folder . '/' . $snapshot->key() . '.json';
+        $folder = (string) substr($id, 0, $position);
+        $key = (string) substr($id, $position + 1);
 
-        return is_file($file) && unlink($file);
+        return $this->rootDir . '/' . $folder . '/' . $key . '.json';
+    }
+
+    /**
+     * Balaie les `.tmp` orphelins qu'un save() interrompu (entre l'écriture et le
+     * rename) laisse derrière lui. On ne touche qu'aux fichiers assez anciens
+     * pour ne pas détruire le `.tmp` d'une écriture concurrente encore en cours.
+     */
+    private function cleanStaleTempFiles(string $dir): void
+    {
+        $now = time();
+        foreach (glob($dir . '/*.tmp') ?: [] as $tmp) {
+            $mtime = @filemtime($tmp);
+            if ($mtime !== false && ($now - $mtime) > 3600) {
+                @unlink($tmp);
+            }
+        }
     }
 
     /**

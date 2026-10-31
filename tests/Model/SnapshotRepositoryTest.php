@@ -93,10 +93,11 @@ class SnapshotRepositoryTest extends TestCase
     }
 
     /**
-     * #18 : une capture corrompue (JSON tronqué) doit lever une erreur de domaine
-     * nommant le fichier fautif, pas une JsonException « Syntax error » nue.
+     * #18 : get() cible un fichier précis — une capture corrompue (JSON tronqué)
+     * doit y lever une erreur de domaine nommant le fichier fautif, pas une
+     * JsonException « Syntax error » nue.
      */
-    public function testUneCaptureCorrompueLeveUneErreurNommantLeFichier(): void
+    public function testGetSurUneCaptureCorrompueLeveUneErreurNommantLeFichier(): void
     {
         $repo = new SnapshotRepository($this->dir);
         $url = 'https://app.local/p.php';
@@ -107,7 +108,76 @@ class SnapshotRepositoryTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('1000.0000.json');
-        $repo->list($folder);
+        $repo->get($folder . '_1000.0000');
+    }
+
+    /**
+     * #18 : un seul fichier corrompu ne doit pas faire planter list()/latest()
+     * pour TOUTES les pages. Le fichier fautif est sauté ; les bonnes captures,
+     * y compris celles d'autres pages, restent listables.
+     */
+    public function testListeSauteUnFichierCorrompuEtGardeLesBons(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $bonUrl = 'https://app.local/bon.php';
+        $bonFolder = \RenderLoop\Service\UrlFolderNamer::toFolderName($bonUrl);
+        $repo->save(new Snapshot($bonUrl, 1000.0, '<p>bon</p>', $bonFolder));
+
+        // Capture corrompue dans une AUTRE page.
+        $corrFolder = \RenderLoop\Service\UrlFolderNamer::toFolderName('https://app.local/corr.php');
+        $corrDir = $this->dir . '/' . $corrFolder;
+        mkdir($corrDir, 0775, true);
+        file_put_contents($corrDir . '/2000.0000.json', '{"url":');
+
+        $tous = $repo->list();
+        self::assertCount(1, $tous);
+        self::assertSame('<p>bon</p>', $tous[0]->html);
+
+        $latest = $repo->latest($bonUrl);
+        self::assertNotNull($latest);
+        self::assertSame('<p>bon</p>', $latest->html);
+    }
+
+    /**
+     * #18 : delete() doit pouvoir supprimer une capture corrompue sans la décoder
+     * (sinon l'unique voie de récupération serait un `rm` manuel).
+     */
+    public function testDeleteSupprimeUneCaptureCorrompueSansLaDecoder(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName('https://app.local/corr.php');
+        $dir = $this->dir . '/' . $folder;
+        mkdir($dir, 0775, true);
+        $file = $dir . '/3000.0000.json';
+        file_put_contents($file, '{"url":');
+
+        self::assertTrue($repo->delete($folder . '_3000.0000'));
+        self::assertFileDoesNotExist($file);
+    }
+
+    /**
+     * #18 : un `.tmp` orphelin assez ancien (save() interrompu avant le rename)
+     * est balayé au prochain save() ; un `.tmp` récent (écriture concurrente)
+     * est épargné.
+     */
+    public function testSaveBalaieLesTemporairesOrphelinsAnciens(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $url = 'https://app.local/p.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $dir = $this->dir . '/' . $folder;
+        mkdir($dir, 0775, true);
+
+        $vieux = $dir . '/1000.0000.json.ancien.tmp';
+        file_put_contents($vieux, 'partiel');
+        touch($vieux, time() - 7200);
+        $recent = $dir . '/1000.0000.json.recent.tmp';
+        file_put_contents($recent, 'partiel');
+
+        $repo->save(new Snapshot($url, 1000.0, '<p>x</p>', $folder));
+
+        self::assertFileDoesNotExist($vieux);
+        self::assertFileExists($recent);
     }
 
     /**
