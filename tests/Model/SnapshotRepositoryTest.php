@@ -163,6 +163,30 @@ class SnapshotRepositoryTest extends TestCase
         }
     }
 
+    /**
+     * Régression #16 : deux `.php` de même basename dans des répertoires
+     * différents (`admin/index.php` vs `shop/index.php`) ne doivent pas partager
+     * la même baseline. `latest()` d'une URL ne doit jamais renvoyer la capture
+     * de l'autre page.
+     */
+    public function testBaselinesNeSeContaminentPasEntreMemesBasenames(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $admin = 'http://localhost/admin/index.php';
+        $shop = 'http://localhost/shop/index.php';
+
+        $repo->save(Snapshot::create($admin, '<p>ADMIN</p>', 'admin'));
+        $repo->save(Snapshot::create($shop, '<p>SHOP</p>', 'shop'));
+
+        $latestAdmin = $repo->latest($admin);
+        $latestShop = $repo->latest($shop);
+
+        self::assertNotNull($latestAdmin);
+        self::assertNotNull($latestShop);
+        self::assertSame('<p>ADMIN</p>', $latestAdmin->html);
+        self::assertSame('<p>SHOP</p>', $latestShop->html);
+    }
+
     public function testListeFiltreParPage(): void
     {
         $repo = new SnapshotRepository($this->dir);
