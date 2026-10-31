@@ -5,3 +5,8 @@ parameters:
     paths:
         - src
         - tests
+    # L'exemple web n'est pas analysé (code applicatif d'intégration), mais ses
+    # symboles sont connus pour que les tests de régression de l'exemple passent.
+    scanFiles:
+        - examples/web/index.php
+        - examples/web/allowlist.php
