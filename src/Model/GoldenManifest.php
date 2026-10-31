@@ -27,19 +27,31 @@ final class GoldenManifest
     private string $path;
 
     /**
+     * Tableau décodé d'origine, conservé tel quel pour que les champs inconnus
+     * (description, $schema, options futures par cas…) survivent à un aller-retour
+     * record/relecture : save() ne réécrit que les champs qu'il gère.
+     *
+     * @var array<string, mixed>
+     */
+    private array $raw;
+
+    /**
      * @param list<array{id: string, url: string}> $cases
      * @param list<string> $mask
+     * @param array<string, mixed> $raw
      */
     public function __construct(
         string $name,
         array $cases,
         array $mask,
-        string $path
+        string $path,
+        array $raw = []
     ) {
         $this->name = $name;
         $this->cases = $cases;
         $this->mask = $mask;
         $this->path = $path;
+        $this->raw = $raw;
     }
 
     public static function fromJsonFile(string $path): self
@@ -49,21 +61,40 @@ final class GoldenManifest
             throw new \RuntimeException("Manifeste golden introuvable : {$path}");
         }
 
-        /** @var array{name?: string, cases?: list<array{id?: string, url?: string}>, mask?: list<string>} $data */
-        $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        /** @var mixed $decoded */
+        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        /** @var array<string, mixed> $data */
+        $data = is_array($decoded) ? $decoded : [];
 
         $cases = [];
-        foreach ($data['cases'] ?? [] as $case) {
-            $id = $case['id'] ?? '';
-            $url = $case['url'] ?? '';
-            if ($id !== '' && $url !== '') {
-                $cases[] = ['id' => $id, 'url' => $url];
+        $rawCases = $data['cases'] ?? [];
+        if (is_array($rawCases)) {
+            foreach ($rawCases as $case) {
+                if (!is_array($case)) {
+                    continue;
+                }
+                $id = $case['id'] ?? '';
+                $url = $case['url'] ?? '';
+                if (is_string($id) && is_string($url) && $id !== '' && $url !== '') {
+                    $cases[] = ['id' => $id, 'url' => $url];
+                }
             }
         }
 
-        $mask = array_values(array_filter($data['mask'] ?? [], 'is_string'));
+        // `mask` peut être un scalaire malformé ("mask":".foo") : array_filter
+        // lèverait un TypeError sous PHP 8, d'où le garde-fou is_array.
+        $rawMask = $data['mask'] ?? [];
+        $mask = is_array($rawMask) ? array_values(array_filter($rawMask, 'is_string')) : [];
 
-        return new self($data['name'] ?? pathinfo($path, PATHINFO_FILENAME), $cases, $mask, $path);
+        // `name` non-string ("name":123) déclencherait un TypeError sous
+        // strict_types au passage au constructeur : on retombe sur le nom du
+        // fichier si la valeur n'est pas une chaîne.
+        $name = $data['name'] ?? null;
+        if (!is_string($name)) {
+            $name = pathinfo($path, PATHINFO_FILENAME);
+        }
+
+        return new self($name, $cases, $mask, $path, $data);
     }
 
     public function name(): string
@@ -97,10 +128,57 @@ final class GoldenManifest
 
     public function save(): void
     {
-        $data = ['name' => $this->name, 'cases' => $this->cases, 'mask' => $this->mask];
+        // On repart du tableau décodé pour préserver les champs inconnus
+        // (description, $schema, options futures par cas…) et on ne réécrit que
+        // les champs que ce modèle gère. On rétablit un ordre canonique
+        // (name, cases, mask, puis le reste des clés d'origine) pour garder un
+        // diff de manifeste propre, même quand `name` était absent à la lecture.
+        $rest = $this->raw;
+        unset($rest['name'], $rest['cases'], $rest['mask']);
+
+        $data = array_merge(
+            [
+                'name' => $this->name,
+                'cases' => $this->casesForSave(),
+                'mask' => $this->mask,
+            ],
+            $rest
+        );
+
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         if (file_put_contents($this->path, $json . "\n") === false) {
             throw new \RuntimeException("Écriture du manifeste échouée : {$this->path}");
         }
+    }
+
+    /**
+     * Reconstruit la liste des cas pour l'écriture : on préserve les champs
+     * inconnus par cas (appariés par id au tableau décodé d'origine) et on ne
+     * réécrit que les clés gérées (id/url).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function casesForSave(): array
+    {
+        $rawCases = [];
+        if (isset($this->raw['cases']) && is_array($this->raw['cases'])) {
+            $rawCases = $this->raw['cases'];
+        }
+
+        $result = [];
+        foreach ($this->cases as $case) {
+            $extra = [];
+            foreach ($rawCases as $rawCase) {
+                if (is_array($rawCase) && ($rawCase['id'] ?? null) === $case['id']) {
+                    $extra = $rawCase;
+                    break;
+                }
+            }
+            /** @var array<string, mixed> $merged */
+            $merged = array_merge($extra, $case);
+            $result[] = $merged;
+        }
+
+        return $result;
     }
 }

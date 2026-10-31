@@ -15,7 +15,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-PORT=8123
+# Port is overridable so the demo can dodge a collision (8123 is also
+# ClickHouse's default HTTP port). Everything below follows $PORT, including the
+# golden manifest, which is rewritten to this port in a scratch copy (scenario 5).
+PORT="${RENDER_LOOP_PORT:-8123}"
+# Reject junk early: $PORT flows into `php -S` and into the sed replacement at
+# scenario 5, where non-numeric input (or sed metachars like & and |) would
+# corrupt the rewrite or fail far downstream via the opaque "server never came
+# up" path.
+[[ "$PORT" =~ ^[0-9]+$ ]] || { printf '   \033[1;31m✗ RENDER_LOOP_PORT must be numeric (got: %s)\033[0m\n' "$PORT" >&2; exit 1; }
 BASE="http://localhost:$PORT"
 RL=(php bin/render-loop)                 # the CLI (xdebug notices go to stderr, ignored)
 SNAP=".render-loop/demo-snapshots"       # scratch snapshot dir for this run
@@ -58,7 +66,7 @@ cleanup() {
 }
 trap cleanup EXIT
 for _ in $(seq 1 30); do curl -fsS "$BASE/index.php" >/dev/null 2>&1 && break; sleep 0.1; done
-curl -fsS "$BASE/index.php" >/dev/null 2>&1 || die "demo server never came up"
+curl -fsS "$BASE/index.php" >/dev/null 2>&1 || die "demo server never came up on port $PORT — is $PORT already in use? (e.g. ClickHouse binds 8123). Set RENDER_LOOP_PORT=<free port> to pick another."
 ok "demo shop serving on $BASE (pid $SERVER_PID)"
 
 # ------------------------------------------------------------------------------
@@ -118,7 +126,11 @@ restore_app
 # ------------------------------------------------------------------------------
 say "Scenario 5 — golden master: record, refactor, verify, catch a regression"
 # Run against a scratch golden dir so the committed golden suite stays pristine.
-GDIR="$SNAP/golden"; mkdir -p "$GDIR"; cp "$GOLDEN/shop.json" "$GDIR/shop.json"
+# Copy the committed manifest into the scratch dir and point its (absolute) case
+# URLs at the live port, so the suite follows $PORT while the tracked file stays
+# pristine (the scratch dir is removed on exit).
+GDIR="$SNAP/golden"; mkdir -p "$GDIR"
+sed -e "s|localhost:[0-9]*|localhost:$PORT|g" "$GOLDEN/shop.json" > "$GDIR/shop.json"
 gold() { "${RL[@]}" -d "$SNAP" --golden-dir="$GDIR" "$@"; }
 
 gold -a golden-record --suite=shop >/dev/null

@@ -23,6 +23,14 @@ composer install                      # once, to pull the dependencies
 bash examples/demo-shop/run-demo.sh   # run from the repo root
 ```
 
+The script serves on port `8123` by default (also ClickHouse's default HTTP
+port). If that port is taken, override it — the whole run, golden suite included,
+follows the new value:
+
+```bash
+RENDER_LOOP_PORT=9000 bash examples/demo-shop/run-demo.sh
+```
+
 A green run proves capture, noise masking, calibrate, indirect-effect detection
 and golden-master all work. The script is self-cleaning: it kills its server and
 reverts every edit (to the demo app **and** to `config/normalizer.json`) on exit.
