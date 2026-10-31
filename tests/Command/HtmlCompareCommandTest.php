@@ -420,6 +420,162 @@ class HtmlCompareCommandTest extends TestCase
         self::assertFalse($out['assertion']['inside_scope_changed']);
     }
 
+    public function testGoldenVerifyJsonExposeUnPayloadParCas(): void
+    {
+        // Un golden manquant suffit à exercer la sortie JSON sans aucune capture
+        // réseau : verify() renvoie « missing » avant de toucher l'URL.
+        $goldenDir = $this->dir . '/golden';
+        mkdir($goldenDir, 0775, true);
+        file_put_contents(
+            $goldenDir . '/shop.json',
+            '{"name":"shop","cases":[{"id":"accueil","url":"http://localhost/shop.php"}],"mask":[]}'
+        );
+
+        $tester = new CommandTester(new HtmlCompareCommand());
+        $tester->execute([
+            '--action' => 'golden-verify',
+            '--suite' => 'shop',
+            '--golden-dir' => $goldenDir,
+            '--format' => 'json',
+        ]);
+
+        // Régression golden => code de sortie non nul.
+        self::assertNotSame(0, $tester->getStatusCode());
+
+        $display = $tester->getDisplay();
+        /** @var array{status: string, changed: int, missing: int, cases: list<array{id: string, status: string, summary: mixed, diff: mixed}>} $out */
+        $out = json_decode($display, true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('regression', $out['status']);
+        self::assertSame(0, $out['changed']);
+        self::assertSame(1, $out['missing']);
+        self::assertCount(1, $out['cases']);
+        self::assertSame('accueil', $out['cases'][0]['id']);
+        self::assertSame('missing', $out['cases'][0]['status']);
+        self::assertNull($out['cases'][0]['summary']);
+        self::assertNull($out['cases'][0]['diff']);
+    }
+
+    public function testGoldenVerifyJsonCasOkExposeSummaryEtDiffNull(): void
+    {
+        // Un cas « ok » (golden ré-vérifié inchangé) porte un DiffResult IDENTIQUE
+        // mais NON null : on vérifie que summary/diff restent bien `null` dans le
+        // JSON, conformément au contrat annoncé (capabilities + docstring). C'est
+        // exactement le cas que le bug de contrat classait à tort comme peuplé.
+        $docroot = $this->dir . '/www';
+        mkdir($docroot, 0775, true);
+        file_put_contents(
+            $docroot . '/index.html',
+            '<!doctype html><html><body><main><h1>Boutique</h1><p>Stable</p></main></body></html>'
+        );
+
+        [$proc, $port] = $this->demarreServeur($docroot);
+        if ($proc === null) {
+            self::markTestSkipped('Serveur HTTP local indisponible.');
+        }
+
+        try {
+            $goldenDir = $this->dir . '/golden';
+            mkdir($goldenDir, 0775, true);
+            $url = "http://127.0.0.1:{$port}/";
+            file_put_contents(
+                $goldenDir . '/shop.json',
+                json_encode([
+                    'name' => 'shop',
+                    'cases' => [['id' => 'accueil', 'url' => $url]],
+                    'mask' => [],
+                ], JSON_THROW_ON_ERROR)
+            );
+
+            $record = new CommandTester(new HtmlCompareCommand());
+            $record->execute([
+                '--action' => 'golden-record',
+                '--suite' => 'shop',
+                '--golden-dir' => $goldenDir,
+            ]);
+            $record->assertCommandIsSuccessful();
+
+            $verify = new CommandTester(new HtmlCompareCommand());
+            $verify->execute([
+                '--action' => 'golden-verify',
+                '--suite' => 'shop',
+                '--golden-dir' => $goldenDir,
+                '--format' => 'json',
+            ]);
+
+            // Aucun écart => succès (code 0).
+            self::assertSame(0, $verify->getStatusCode());
+            /** @var array{status: string, changed: int, missing: int, cases: list<array{id: string, status: string, summary: mixed, diff: mixed}>} $out */
+            $out = json_decode($verify->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+
+            self::assertSame('ok', $out['status']);
+            self::assertSame(0, $out['changed']);
+            self::assertSame(0, $out['missing']);
+            self::assertCount(1, $out['cases']);
+            self::assertSame('accueil', $out['cases'][0]['id']);
+            self::assertSame('ok', $out['cases'][0]['status']);
+            self::assertNull($out['cases'][0]['summary']);
+            self::assertNull($out['cases'][0]['diff']);
+        } finally {
+            $this->arreteServeur($proc);
+        }
+    }
+
+    /**
+     * Démarre un serveur HTTP PHP local servant $docroot sur un port libre.
+     *
+     * @return array{0: ?resource, 1: int}
+     */
+    private function demarreServeur(string $docroot): array
+    {
+        $sock = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        if ($sock === false) {
+            return [null, 0];
+        }
+        $name = stream_socket_get_name($sock, false);
+        fclose($sock);
+        if ($name === false) {
+            return [null, 0];
+        }
+        $port = (int) substr($name, (int) strrpos($name, ':') + 1);
+
+        $proc = @proc_open(
+            [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', $docroot],
+            [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($proc)) {
+            return [null, 0];
+        }
+
+        // Attendre que le serveur accepte les connexions (max ~5 s).
+        for ($i = 0; $i < 50; $i++) {
+            $client = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+            if (is_resource($client)) {
+                fclose($client);
+
+                return [$proc, $port];
+            }
+            usleep(100000);
+        }
+
+        proc_terminate($proc);
+        proc_close($proc);
+
+        return [null, 0];
+    }
+
+    /**
+     * @param resource|null $proc
+     */
+    private function arreteServeur($proc): void
+    {
+        if (is_resource($proc)) {
+            proc_terminate($proc);
+            proc_close($proc);
+        }
+    }
+
     /**
      * Régression #19 : un `--expect-selector` syntaxiquement invalide est rejeté
      * à la frontière CLI, avec un message qui nomme l'option — avant toute capture
