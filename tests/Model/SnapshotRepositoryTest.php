@@ -197,6 +197,101 @@ class SnapshotRepositoryTest extends TestCase
         self::assertCount(1, glob($this->dir . '/' . $folder . '/*.json') ?: []);
     }
 
+    /**
+     * #24 : get() découpe l'id au dernier « _ » pour composer un chemin. Un id
+     * tel que « ../secret_<clé> » remonte d'un cran et lit un .json valide hors
+     * du dossier racine. La validation doit le refuser (null), même si la cible
+     * existe réellement.
+     */
+    public function testGetRefuseLaLectureHorsDuDossierRacine(): void
+    {
+        $repo = new SnapshotRepository($this->dir . '/snapshots');
+        mkdir($this->dir . '/snapshots', 0775, true);
+
+        // Une capture valide, mais DÉPOSÉE hors du dossier racine du dépôt.
+        $evil = new Snapshot('https://evil.local/x', 1000.0, '<p>secret</p>', '../secret');
+        $outside = $this->dir . '/secret';
+        mkdir($outside, 0775, true);
+        $cible = $outside . '/' . $evil->key() . '.json';
+        file_put_contents($cible, (string) json_encode($evil->toArray()));
+
+        // rootDir/../secret/<clé>.json pointe exactement sur $cible : sans
+        // validation, get() le lirait et renverrait la capture.
+        self::assertNull($repo->get('../secret_' . $evil->key()));
+        self::assertNull($repo->get('/etc/passwd_x'));
+        self::assertNull($repo->get('.hidden_1'));
+    }
+
+    /**
+     * #24 : delete() délègue à get(). Sans validation, un id qui remonte hors du
+     * dossier racine ferait unlink() sur la cible extérieure ; la validation de
+     * get() doit l'en empêcher (false, et le fichier survit).
+     */
+    public function testDeleteRefuseLEffacementHorsDuDossierRacine(): void
+    {
+        $repo = new SnapshotRepository($this->dir . '/snapshots');
+        mkdir($this->dir . '/snapshots', 0775, true);
+
+        // La capture déposée porte un champ folder « ../secret » et une clé qui
+        // correspond au nom du fichier : sans validation, delete() recomposerait
+        // rootDir/../secret/<clé>.json et effacerait réellement la cible.
+        $evil = new Snapshot('https://evil.local/x', 1000.0, '<p>secret</p>', '../secret');
+        $outside = $this->dir . '/secret';
+        mkdir($outside, 0775, true);
+        $cible = $outside . '/' . $evil->key() . '.json';
+        file_put_contents($cible, (string) json_encode($evil->toArray()));
+
+        self::assertFalse($repo->delete('../secret_' . $evil->key()));
+        self::assertFileExists($cible);
+    }
+
+    /**
+     * #24 (régression) : la protection anti-traversée ne doit pas sur-bloquer un
+     * id légitime. `UrlFolderNamer` conserve les points, donc un dossier peut
+     * contenir `..` (ex. `foo..php`) ou commencer par un point (ex. `.env.php`)
+     * sans aucune remontée de répertoire. save() les écrit : get() et delete()
+     * doivent pouvoir les relire et les effacer.
+     */
+    public function testIdsLegitimesAvecPointsRestentAccessibles(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+
+        foreach (['foo..php', '.env.php'] as $folder) {
+            $snapshot = new Snapshot('https://app.local/x', 1000.0, '<p>ok</p>', $folder);
+            $id = $repo->save($snapshot);
+
+            $relu = $repo->get($id);
+            self::assertNotNull($relu, "get() doit relire l'id légitime {$id}");
+            self::assertSame('<p>ok</p>', $relu->html);
+            self::assertTrue($repo->delete($id), "delete() doit effacer l'id légitime {$id}");
+            self::assertNull($repo->get($id));
+        }
+    }
+
+    /**
+     * Régression #16 : deux `.php` de même basename dans des répertoires
+     * différents (`admin/index.php` vs `shop/index.php`) ne doivent pas partager
+     * la même baseline. `latest()` d'une URL ne doit jamais renvoyer la capture
+     * de l'autre page.
+     */
+    public function testBaselinesNeSeContaminentPasEntreMemesBasenames(): void
+    {
+        $repo = new SnapshotRepository($this->dir);
+        $admin = 'http://localhost/admin/index.php';
+        $shop = 'http://localhost/shop/index.php';
+
+        $repo->save(Snapshot::create($admin, '<p>ADMIN</p>', 'admin'));
+        $repo->save(Snapshot::create($shop, '<p>SHOP</p>', 'shop'));
+
+        $latestAdmin = $repo->latest($admin);
+        $latestShop = $repo->latest($shop);
+
+        self::assertNotNull($latestAdmin);
+        self::assertNotNull($latestShop);
+        self::assertSame('<p>ADMIN</p>', $latestAdmin->html);
+        self::assertSame('<p>SHOP</p>', $latestShop->html);
+    }
+
     public function testListeFiltreParPage(): void
     {
         $repo = new SnapshotRepository($this->dir);

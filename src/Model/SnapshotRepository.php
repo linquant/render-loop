@@ -117,6 +117,13 @@ final class SnapshotRepository
         $folder = (string) substr($id, 0, $position);
         $key = (string) substr($id, $position + 1);
 
+        // Protection anti-traversée (#24) : un id tel que « ../secret_<clé> »
+        // composerait un chemin hors du dossier racine. On refuse tout composant
+        // non sûr ici, donc get() ET delete() sont couverts par le même garde-fou.
+        if (!self::isSafeComponent($folder) || !self::isSafeComponent($key)) {
+            return null;
+        }
+
         return $this->rootDir . '/' . $folder . '/' . $key . '.json';
     }
 
@@ -160,6 +167,28 @@ final class SnapshotRepository
         $id = file_get_contents($file);
 
         return ($id === false || trim($id) === '') ? null : trim($id);
+    }
+
+    /**
+     * Valide un composant de chemin (dossier ou clé) issu du découpage de l'id.
+     * On ferme la traversée de répertoire — séparateur de chemin, ou segment
+     * valant exactement `.`/`..` — sans sur-bloquer les noms légitimes : un
+     * dossier peut légitimement contenir `..` (ex. `foo..php`) ou commencer par
+     * un point (ex. `.env.php`), car `UrlFolderNamer` conserve les points. La
+     * condition `basename($c) === $c` garantit qu'aucun séparateur ne subsiste,
+     * ce qui protège get() ET delete() (qui délègue à get()).
+     */
+    private static function isSafeComponent(string $component): bool
+    {
+        if ($component === '' || $component === '.' || $component === '..') {
+            return false;
+        }
+
+        if (strpos($component, '/') !== false || strpos($component, '\\') !== false) {
+            return false;
+        }
+
+        return basename($component) === $component;
     }
 
     private function read(string $file): ?Snapshot
