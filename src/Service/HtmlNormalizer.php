@@ -68,7 +68,7 @@ final class HtmlNormalizer
 
         $root = $this->config->rootSelector();
         if ($root !== null && $root !== '') {
-            $scoped = $xpath->query($this->converter->toXPath($root));
+            $scoped = $xpath->query(CssSelectorValidator::toXPath($this->converter, $root, 'root_selector in the normalizer config'));
             $node = ($scoped !== false) ? $scoped->item(0) : null;
             if ($node instanceof \DOMNode) {
                 $html = $dom->saveHTML($node);
@@ -103,7 +103,7 @@ final class HtmlNormalizer
 
     private function removeMatching(\DOMXPath $xpath, string $selector): void
     {
-        $nodes = $xpath->query($this->converter->toXPath($selector));
+        $nodes = $xpath->query(CssSelectorValidator::toXPath($this->converter, $selector, 'noise_selectors in the normalizer config'));
         if ($nodes === false) {
             return;
         }

@@ -112,4 +112,25 @@ class HtmlNormalizerTest extends TestCase
     {
         self::assertSame('', $this->normalizer()->normalize('   '));
     }
+
+    /**
+     * Régression #19 : un sélecteur de bruit invalide dans la config doit faire
+     * échouer la normalisation proprement (RuntimeException nommant le sélecteur),
+     * pas remonter une exception brute du parseur CSS.
+     */
+    public function testUnSelecteurDeBruitInvalideEchoueProprement(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('#price:main');
+
+        $this->normalizer(null, ['#price:main'])->normalize('<div><p>x</p></div>');
+    }
+
+    public function testUnRootSelectorInvalideEchoueProprement(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('div[[');
+
+        $this->normalizer('div[[')->normalize('<div><p>x</p></div>');
+    }
 }

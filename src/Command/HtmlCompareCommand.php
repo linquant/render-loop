@@ -8,6 +8,7 @@ use RenderLoop\Model\GoldenManifest;
 use RenderLoop\Model\Snapshot;
 use RenderLoop\Model\SnapshotRepository;
 use RenderLoop\Service\Change;
+use RenderLoop\Service\CssSelectorValidator;
 use RenderLoop\Service\CurlCaptureStrategy;
 use RenderLoop\Service\DiffResult;
 use RenderLoop\Service\GitRevision;
@@ -248,9 +249,15 @@ HELP);
         );
 
         $apply = $input->getOption('apply') === true;
-        $applied = ($apply && $selectors !== [])
-            ? (new NoiseConfigWriter())->append($this->configPath($input), $selectors)
-            : [];
+        $applied = [];
+        if ($apply && $selectors !== []) {
+            // Refuser un sélecteur invalide AVANT de l'écrire : sinon la config est
+            // empoisonnée et chaque run suivant plante (cf. un id `price:main`).
+            foreach ($selectors as $selector) {
+                CssSelectorValidator::assertValid($selector, 'calibrate --apply');
+            }
+            $applied = (new NoiseConfigWriter())->append($this->configPath($input), $selectors);
+        }
 
         if ($this->isJson($input)) {
             $output->writeln($this->json(['candidates' => $selectors, 'applied' => $applied]));
@@ -292,6 +299,12 @@ HELP);
         $selectors = is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
         if ($selectors === []) {
             throw new \InvalidArgumentException('mask-add requires at least one --selector');
+        }
+
+        // Valider avant écriture : un sélecteur CSS invalide ne doit jamais entrer
+        // dans la config (il ferait planter chaque run suivant).
+        foreach ($selectors as $selector) {
+            CssSelectorValidator::assertValid($selector, '--selector');
         }
 
         $applied = (new NoiseConfigWriter())->append($this->configPath($input), $selectors);
