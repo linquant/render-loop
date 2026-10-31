@@ -9,3 +9,4 @@ parameters:
     # symboles sont connus pour que les tests de régression de l'exemple passent.
     scanFiles:
         - examples/web/index.php
+        - examples/web/allowlist.php

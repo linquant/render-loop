@@ -11,24 +11,38 @@ use PHPUnit\Framework\TestCase;
  * des hôtes de l'en-tête Host fourni par le client ($_SERVER['HTTP_HOST']). Le
  * cookie de session étant attaché à tout hôte autorisé, faire confiance à
  * HTTP_HOST autoriserait une capture (cookie compris) vers un domaine attaquant.
+ *
+ * Le helper est extrait dans `examples/web/allowlist.php` : on l'inclut seul,
+ * sans exécuter le shell de l'exemple (routeur JSON + view.phtml), donc sans
+ * effet de bord ni risque de redéclaration.
  */
 class WebExampleAllowlistTest extends TestCase
 {
+    /** @var mixed */
+    private $savedHttpHost;
+
+    private bool $avaitHttpHost = false;
+
     public static function setUpBeforeClass(): void
     {
-        // L'exemple d'intégration utilise la syntaxe PHP 8 (opérateur nullsafe) :
-        // l'inclure sous PHP 7.4 serait une erreur d'analyse. Les symboles
-        // restent connus de PHPStan via `scanFiles`.
-        if (PHP_VERSION_ID < 80000) {
-            self::markTestSkipped('L\'exemple web requiert PHP 8.0+ (opérateur nullsafe).');
-        }
+        require_once __DIR__ . '/../../examples/web/allowlist.php';
+    }
 
-        // Charge les fonctions de l'exemple sans déclencher le routeur JSON
-        // (qui ferait exit) ni laisser fuir le HTML du shell.
-        unset($_GET['hc']);
-        ob_start();
-        require_once __DIR__ . '/../../examples/web/index.php';
-        ob_end_clean();
+    protected function setUp(): void
+    {
+        // On sauvegarde $_SERVER['HTTP_HOST'] pour le restaurer : une mutation
+        // qui fuite polluerait tout test ultérieur lu dans le même process.
+        $this->avaitHttpHost = array_key_exists('HTTP_HOST', $_SERVER);
+        $this->savedHttpHost = $_SERVER['HTTP_HOST'] ?? null;
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->avaitHttpHost) {
+            $_SERVER['HTTP_HOST'] = $this->savedHttpHost;
+        } else {
+            unset($_SERVER['HTTP_HOST']);
+        }
     }
 
     public function testParDefautSeuleLaBoucleLocaleEstAutorisee(): void
@@ -49,11 +63,24 @@ class WebExampleAllowlistTest extends TestCase
         self::assertNotContains('attacker.example', $hosts);
     }
 
-    public function testLaListeConfigureeEstLueEtNettoyee(): void
+    /**
+     * #23 : la valeur configurée ÉTEND la boucle locale, elle ne la remplace pas.
+     * Sinon `RENDERLOOP_ALLOWED_HOSTS=app.local` casserait silencieusement la
+     * capture de `http://localhost:8000/` (la façon documentée de lancer l'exemple).
+     */
+    public function testLaListeConfigureeEtendLaBoucleLocale(): void
     {
         self::assertSame(
-            ['app.local', 'web'],
+            ['localhost', '127.0.0.1', 'app.local', 'web'],
             \renderloop_allowed_hosts('app.local, web ,'),
+        );
+    }
+
+    public function testLaBoucleLocaleNestJamaisDupliquee(): void
+    {
+        self::assertSame(
+            ['localhost', '127.0.0.1', 'app.local'],
+            \renderloop_allowed_hosts('localhost, app.local, 127.0.0.1'),
         );
     }
 }

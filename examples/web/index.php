@@ -30,6 +30,7 @@ use RenderLoop\Service\NormalizerConfig;
 use RenderLoop\Service\UrlGuard;
 
 require __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/allowlist.php';
 
 // --- Configuration (an integrator would read these from their app) ----------
 $snapshotDir = sys_get_temp_dir() . '/render-loop-example';
@@ -64,37 +65,6 @@ if ($action !== null) {
         echo json_encode(['success' => false, 'message' => 'Internal error: ' . $e->getMessage()], JSON_THROW_ON_ERROR);
     }
     exit;
-}
-
-/**
- * Hosts the capture engine is allowed to reach. These are NEVER derived from the
- * client-supplied Host header ($_SERVER['HTTP_HOST']): CurlCaptureStrategy
- * attaches the visitor's session cookie to any allowed host, so trusting
- * HTTP_HOST would let a request with `Host: attacker.example` authorize a capture
- * of that domain WITH the cookie attached — SSRF plus cookie exfiltration, i.e.
- * exactly what UrlGuard exists to prevent.
- *
- * The allowlist is read from a configured value (RENDERLOOP_ALLOWED_HOSTS,
- * comma-separated) and otherwise falls back to the local loopback only.
- *
- * @return list<string>
- */
-function renderloop_allowed_hosts(?string $configured): array
-{
-    $defaults = ['localhost', '127.0.0.1'];
-    if ($configured === null || trim($configured) === '') {
-        return $defaults;
-    }
-
-    $hosts = [];
-    foreach (explode(',', $configured) as $host) {
-        $host = trim($host);
-        if ($host !== '') {
-            $hosts[] = $host;
-        }
-    }
-
-    return $hosts === [] ? $defaults : $hosts;
 }
 
 /**
