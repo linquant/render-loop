@@ -16,8 +16,10 @@ namespace RenderLoop\Service;
  * `tag[name="…"]`, sinon un chemin positionnel `…:nth-of-type(n)` (dernier
  * recours, plus fragile — à relire avant de figer dans un masque).
  *
- * Les captures portant sur la MÊME page inchangée, leur structure est identique :
- * un parcours positionnel des éléments est valide (on s'arrête si elle diverge).
+ * Les captures portant sur la MÊME page, leur structure est presque identique : un
+ * parcours positionnel aligné est valide. Une insertion/suppression locale (bandeau,
+ * barre de debug) décale les listes sans invalider le reste : on resynchronise et on
+ * poursuit le parcours plutôt que d'abandonner à la première divergence.
  */
 final class NoiseCalibrator
 {
@@ -56,19 +58,39 @@ final class NoiseCalibrator
 
         $elementsA = $this->elements($docA);
         $elementsB = $this->elements($docB);
-        $count = min(count($elementsA), count($elementsB));
+        $countA = count($elementsA);
+        $countB = count($elementsB);
 
+        // Parcours aligné par deux curseurs. Un élément inséré/retiré (une barre de
+        // debug, un bandeau, un bloc promo qui tourne) décale les deux listes : on
+        // ne s'arrête PLUS à la première divergence (sinon tout le bruit situé après
+        // — horodatages, compteurs — passe inaperçu). On resynchronise en sautant
+        // l'index désaligné du côté qui a l'élément en trop, puis on continue.
         $selectors = [];
-        for ($i = 0; $i < $count; $i++) {
+        $i = 0;
+        $j = 0;
+        while ($i < $countA && $j < $countB) {
             $a = $elementsA[$i];
-            $b = $elementsB[$i];
+            $b = $elementsB[$j];
+
             if ($a->tagName !== $b->tagName) {
-                break; // structure divergente : le parcours positionnel n'est plus fiable
+                if ($j + 1 < $countB && $a->tagName === $elementsB[$j + 1]->tagName) {
+                    $j++; // élément inséré dans B : on le saute
+                } elseif ($i + 1 < $countA && $elementsA[$i + 1]->tagName === $b->tagName) {
+                    $i++; // élément inséré dans A : on le saute
+                } else {
+                    $i++; // divergence non résoluble : on avance des deux côtés
+                    $j++;
+                }
+                continue;
             }
+
             if ($this->directText($a) !== $this->directText($b)
                 || $this->attributesSignature($a) !== $this->attributesSignature($b)) {
                 $selectors[] = $this->selectorFor($a);
             }
+            $i++;
+            $j++;
         }
 
         return $selectors;

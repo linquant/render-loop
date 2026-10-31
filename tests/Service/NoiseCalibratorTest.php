@@ -64,4 +64,14 @@ class NoiseCalibratorTest extends TestCase
 
         self::assertSame(['#contenu > p:nth-of-type(1)'], $this->calibrator()->calibrate($a, $b));
     }
+
+    public function testUneInsertionStructurelleNInterromptPasLaDetectionDuBruitSuivant(): void
+    {
+        // B insère un bandeau avant l'horodatage : le décalage ne doit pas masquer
+        // le bruit (le compteur volatil) situé APRÈS l'insertion.
+        $a = '<main id="contenu"><span class="horodatage">10:00:01</span></main>';
+        $b = '<main id="contenu"><div class="bandeau">Promo</div><span class="horodatage">10:00:02</span></main>';
+
+        self::assertSame(['.horodatage'], $this->calibrator()->calibrate($a, $b));
+    }
 }
