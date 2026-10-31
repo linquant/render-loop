@@ -27,19 +27,31 @@ final class GoldenManifest
     private string $path;
 
     /**
+     * Tableau décodé d'origine, conservé tel quel pour que les champs inconnus
+     * (description, $schema, options futures par cas…) survivent à un aller-retour
+     * record/relecture : save() ne réécrit que les champs qu'il gère.
+     *
+     * @var array<string, mixed>
+     */
+    private array $raw;
+
+    /**
      * @param list<array{id: string, url: string}> $cases
      * @param list<string> $mask
+     * @param array<string, mixed> $raw
      */
     public function __construct(
         string $name,
         array $cases,
         array $mask,
-        string $path
+        string $path,
+        array $raw = []
     ) {
         $this->name = $name;
         $this->cases = $cases;
         $this->mask = $mask;
         $this->path = $path;
+        $this->raw = $raw;
     }
 
     public static function fromJsonFile(string $path): self
@@ -51,6 +63,9 @@ final class GoldenManifest
 
         /** @var array{name?: string, cases?: list<array{id?: string, url?: string}>, mask?: list<string>} $data */
         $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            $data = [];
+        }
 
         $cases = [];
         foreach ($data['cases'] ?? [] as $case) {
@@ -63,7 +78,7 @@ final class GoldenManifest
 
         $mask = array_values(array_filter($data['mask'] ?? [], 'is_string'));
 
-        return new self($data['name'] ?? pathinfo($path, PATHINFO_FILENAME), $cases, $mask, $path);
+        return new self($data['name'] ?? pathinfo($path, PATHINFO_FILENAME), $cases, $mask, $path, $data);
     }
 
     public function name(): string
@@ -97,7 +112,13 @@ final class GoldenManifest
 
     public function save(): void
     {
-        $data = ['name' => $this->name, 'cases' => $this->cases, 'mask' => $this->mask];
+        // On repart du tableau décodé pour préserver les champs inconnus
+        // (description, $schema, options futures par cas…) et on ne réécrit que
+        // les champs que ce modèle gère.
+        $data = $this->raw;
+        $data['name'] = $this->name;
+        $data['cases'] = $this->cases;
+        $data['mask'] = $this->mask;
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         if (file_put_contents($this->path, $json . "\n") === false) {
             throw new \RuntimeException("Écriture du manifeste échouée : {$this->path}");
