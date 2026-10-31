@@ -85,6 +85,22 @@ class HtmlNormalizerTest extends TestCase
         self::assertStringContainsString('second', $out);
     }
 
+    /**
+     * Régression #20/#21 : quand deux nœuds correspondants sont imbriqués (même
+     * sélecteur, p. ex. `.box` dans `.box`), seul le plus externe doit être
+     * sérialisé. Sinon le contenu du descendant apparaît deux fois, ce qui
+     * gonfle le diff et re-compte le même texte en aval.
+     */
+    public function testRootSelectorImbriqueNeDupliquePasLeContenu(): void
+    {
+        $html = '<body><div class="box">exterieur<div class="box">interieur</div></div></body>';
+
+        $out = $this->normalizer('.box')->normalize($html);
+
+        self::assertSame(1, substr_count($out, 'interieur'));
+        self::assertStringContainsString('exterieur', $out);
+    }
+
     public function testEstIdempotent(): void
     {
         $normalizer = $this->normalizer(null, ['.phpdebugbar']);

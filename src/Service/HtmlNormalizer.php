@@ -74,9 +74,24 @@ final class HtmlNormalizer
                 // premier : sinon un changement dans un second `.box` resterait
                 // invisible (les deux rendus se normaliseraient à l'identique).
                 // Voir issue #21.
+                //
+                // Mais ne garder que les correspondances les PLUS EXTERNES : si
+                // un nœud correspondant est imbriqué dans un autre nœud
+                // correspondant (même sélecteur, p. ex. `.box` dans `.box`),
+                // l'ancêtre le sérialise déjà. Sérialiser aussi le descendant
+                // dupliquerait son contenu, gonflerait le diff et re-compterait
+                // le même texte en aval (issue #20). Pas de copie via
+                // iterator_to_array : la boucle ne mute pas le DOM.
+                $matched = [];
+                foreach ($scoped as $node) {
+                    if ($node instanceof \DOMNode) {
+                        $matched[] = $node;
+                    }
+                }
+
                 $parts = [];
-                foreach (iterator_to_array($scoped) as $node) {
-                    if (!$node instanceof \DOMNode) {
+                foreach ($matched as $node) {
+                    if ($this->isDescendantOfAny($node, $matched)) {
                         continue;
                     }
                     $serialized = $dom->saveHTML($node);
@@ -111,6 +126,26 @@ final class HtmlNormalizer
         );
 
         return $clean ?? $html;
+    }
+
+    /**
+     * Le nœud est-il un descendant (strict) d'un AUTRE nœud de la liste ?
+     *
+     * @param list<\DOMNode> $others
+     */
+    private function isDescendantOfAny(\DOMNode $node, array $others): bool
+    {
+        $parent = $node->parentNode;
+        while ($parent !== null) {
+            foreach ($others as $other) {
+                if ($other === $parent) {
+                    return true;
+                }
+            }
+            $parent = $parent->parentNode;
+        }
+
+        return false;
     }
 
     private function removeMatching(\DOMXPath $xpath, string $selector): void
