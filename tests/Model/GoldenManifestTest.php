@@ -56,4 +56,64 @@ class GoldenManifestTest extends TestCase
 
         self::assertSame(['.a', '.b'], GoldenManifest::fromJsonFile($this->path)->mask());
     }
+
+    public function testPreserveLesChampsInconnusLorsDeLEnregistrement(): void
+    {
+        $this->write(
+            '{"$schema":"https://render-loop/golden.json","description":"suite boutique",'
+            . '"name":"shop","cases":[{"id":"c1","url":"http://web/f.php?id=1"}],"mask":[".compteur"]}'
+        );
+
+        $manifest = GoldenManifest::fromJsonFile($this->path);
+        $manifest->addMask(['.widget']);
+        $manifest->save();
+
+        $written = file_get_contents($this->path);
+        self::assertNotFalse($written);
+        /** @var array<string, mixed> $decoded */
+        $decoded = json_decode($written, true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('https://render-loop/golden.json', $decoded['$schema']);
+        self::assertSame('suite boutique', $decoded['description']);
+        self::assertSame('shop', $decoded['name']);
+        self::assertSame([['id' => 'c1', 'url' => 'http://web/f.php?id=1']], $decoded['cases']);
+        self::assertSame(['.compteur', '.widget'], $decoded['mask']);
+    }
+
+    public function testPreserveLesChampsInconnusParCasLorsDeLEnregistrement(): void
+    {
+        $this->write(
+            '{"name":"shop","cases":[{"id":"c1","url":"http://web/f.php?id=1","wait":500,"note":"accueil"}],"mask":[]}'
+        );
+
+        $manifest = GoldenManifest::fromJsonFile($this->path);
+        $manifest->addMask(['.widget']);
+        $manifest->save();
+
+        $written = file_get_contents($this->path);
+        self::assertNotFalse($written);
+        /** @var array<string, mixed> $decoded */
+        $decoded = json_decode($written, true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(
+            [['id' => 'c1', 'url' => 'http://web/f.php?id=1', 'wait' => 500, 'note' => 'accueil']],
+            $decoded['cases']
+        );
+    }
+
+    public function testMasqueScalaireMalformeEstIgnore(): void
+    {
+        $this->write('{"name":"s","cases":[],"mask":".foo"}');
+
+        self::assertSame([], GoldenManifest::fromJsonFile($this->path)->mask());
+    }
+
+    public function testNomNonChaineRetombeSurLeNomDuFichier(): void
+    {
+        $this->write('{"name":123,"cases":[],"mask":[]}');
+
+        $attendu = pathinfo($this->path, PATHINFO_FILENAME);
+
+        self::assertSame($attendu, GoldenManifest::fromJsonFile($this->path)->name());
+    }
 }

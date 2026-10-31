@@ -156,6 +156,52 @@ class HtmlCompareCommandTest extends TestCase
         self::assertStringContainsString('--url', $tester->getErrorOutput());
     }
 
+    public function testListeSurvitAUnSnapshotCorrompu(): void
+    {
+        // #18 : un seul .json tronqué ne doit plus bloquer `list` pour toutes les
+        // pages. La capture corrompue est sautée ; la bonne reste listée, exit 0.
+        $url = 'https://app.local/fiche.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $repo = new SnapshotRepository($this->dir);
+        $bon = $repo->save(new Snapshot($url, 1000.0, '<p>bon</p>', $folder, 'bon'));
+
+        $dir = $this->dir . '/' . $folder;
+        file_put_contents($dir . '/2000.0000.json', '{"url":');
+
+        $tester = new CommandTester(new HtmlCompareCommand());
+        $tester->execute(['--action' => 'list', '--dir' => $this->dir]);
+
+        self::assertSame(0, $tester->getStatusCode());
+        self::assertStringContainsString($bon, $tester->getDisplay());
+    }
+
+    public function testCompareSurUnSnapshotCorrompuEchoueEnNommantLeFichier(): void
+    {
+        // #18 : une action qui CIBLE la capture corrompue (ici `compare`) ne doit
+        // plus faire remonter un « Syntax error » brut, mais un message
+        // actionnable sur stderr nommant le fichier fautif, stdout vide.
+        $url = 'https://app.local/fiche.php';
+        $folder = \RenderLoop\Service\UrlFolderNamer::toFolderName($url);
+        $dir = $this->dir . '/' . $folder;
+        mkdir($dir, 0775, true);
+        file_put_contents($dir . '/1000.0000.json', '{"url":');
+
+        $tester = new CommandTester(new HtmlCompareCommand());
+        $tester->execute(
+            [
+                '--action' => 'compare',
+                '--from' => $folder . '_1000.0000',
+                '--to' => $folder . '_1000.0000',
+                '--dir' => $this->dir,
+            ],
+            ['capture_stderr_separately' => true],
+        );
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertSame('', $tester->getDisplay());
+        self::assertStringContainsString('1000.0000.json', $tester->getErrorOutput());
+    }
+
     public function testMaskAddEcritLesSelecteursDansLaConfigCiblee(): void
     {
         $config = $this->tempConfig(['.phpdebugbar']);

@@ -64,4 +64,109 @@ class NoiseCalibratorTest extends TestCase
 
         self::assertSame(['#contenu > p:nth-of-type(1)'], $this->calibrator()->calibrate($a, $b));
     }
+
+    public function testUneClassePartageeNEstPasProposeeEtNeMasquePasUnVraiChangement(): void
+    {
+        // Deux <span class="badge"> : une horloge volatile, un prix stable. Masquer
+        // `.badge` rendrait le golden aveugle au prix — le candidat doit être unique.
+        $a = '<html><body><span class="badge">10:00:01</span><span class="badge">1295.00</span></body></html>';
+        $b = '<html><body><span class="badge">10:00:02</span><span class="badge">1295.00</span></body></html>';
+
+        $selecteurs = $this->calibrator()->calibrate($a, $b);
+
+        self::assertNotContains('.badge', $selecteurs, 'un sélecteur de classe partagée masquerait trop large');
+        self::assertCount(1, $selecteurs);
+
+        // Appliqué comme masque, le candidat laisse voir un vrai changement de prix.
+        $masque = new HtmlNormalizer(new NormalizerConfig(null, $selecteurs));
+        $avant = $masque->normalize($a);
+        $apres = $masque->normalize(str_replace('1295.00', '0.00', $b));
+
+        self::assertNotSame($avant, $apres, 'un changement réel de prix ne doit pas être masqué par la calibration');
+    }
+
+    public function testUnIdPartageNEstPasProposeEtNeMasquePasUnVraiChangement(): void
+    {
+        // HTML malformé (que ce codebase traite) : une horloge volatile et un prix
+        // stable partagent id="val". Masquer `#val` rendrait le golden aveugle au
+        // prix — le candidat doit rester unique, donc retomber sur un chemin
+        // positionnel plutôt que sur l'id dupliqué.
+        $a = '<html><body><span id="val">10:00:01</span><span id="val">1295.00</span></body></html>';
+        $b = '<html><body><span id="val">10:00:02</span><span id="val">1295.00</span></body></html>';
+
+        $selecteurs = $this->calibrator()->calibrate($a, $b);
+
+        self::assertNotContains('#val', $selecteurs, 'un sélecteur d\'id partagé masquerait trop large');
+        self::assertCount(1, $selecteurs);
+
+        // Appliqué comme masque, le candidat laisse voir un vrai changement de prix.
+        $masque = new HtmlNormalizer(new NormalizerConfig(null, $selecteurs));
+        $avant = $masque->normalize($a);
+        $apres = $masque->normalize(str_replace('1295.00', '0.00', $b));
+
+        self::assertNotSame($avant, $apres, 'un changement réel de prix ne doit pas être masqué par un id dupliqué');
+    }
+
+    public function testUneClasseSepareeParTabulationEstReconnueUnique(): void
+    {
+        // Séparateur blanc HTML autre que l'espace : la première classe doit être
+        // extraite avec le MÊME découpage que la table de fréquence, sinon une
+        // classe unique est rejetée et on retombe sur un chemin positionnel fragile.
+        $a = "<main id=\"c\"><p class=\"ts\tvolatile\">Visiteurs : 416</p></main>";
+        $b = "<main id=\"c\"><p class=\"ts\tvolatile\">Visiteurs : 714</p></main>";
+
+        self::assertSame(['.ts'], $this->calibrator()->calibrate($a, $b));
+    }
+
+    public function testUneInsertionStructurelleNInterromptPasLaDetectionDuBruitSuivant(): void
+    {
+        // B insère un bandeau avant l'horodatage : le décalage ne doit pas masquer
+        // le bruit (l'horodatage volatil) situé APRÈS l'insertion. Le bandeau lui-même,
+        // présent dans une capture et pas l'autre, EST du bruit structurel → proposé.
+        $a = '<main id="contenu"><span class="horodatage">10:00:01</span></main>';
+        $b = '<main id="contenu"><div class="bandeau">Promo</div><span class="horodatage">10:00:02</span></main>';
+
+        self::assertSame(['.bandeau', '.horodatage'], $this->calibrator()->calibrate($a, $b));
+    }
+
+    public function testUneInsertionMultiElementsPorteuseDEnfantsNeCreePasDeFauxPositif(): void
+    {
+        // Cas réaliste : B insère un bloc promo PORTEUR D'ENFANTS (pas un simple div
+        // vide) avant le contenu stable. L'appariement par keyPath doit :
+        //  - NE PAS proposer l'élément stable `#stable` (aucune dérive) ;
+        //  - retrouver le bruit (`.horodatage`) situé APRÈS l'insertion ;
+        //  - proposer le bloc structurel inséré (`.promo`).
+        $a = '<main id="contenu">'
+            . '<p id="stable">Prix : 1295.00</p>'
+            . '<span class="horodatage">10:00:01</span>'
+            . '</main>';
+        $b = '<main id="contenu">'
+            . '<aside class="promo"><strong>Offre</strong><a href="/x">voir</a></aside>'
+            . '<p id="stable">Prix : 1295.00</p>'
+            . '<span class="horodatage">10:00:02</span>'
+            . '</main>';
+
+        $selecteurs = $this->calibrator()->calibrate($a, $b);
+
+        self::assertNotContains('#stable', $selecteurs, 'un élément stable ne doit pas être proposé comme bruit');
+        self::assertContains('.horodatage', $selecteurs, 'le bruit après l\'insertion doit rester détecté');
+        self::assertContains('.promo', $selecteurs, 'le bloc inséré est du bruit structurel et doit être proposé');
+    }
+
+    public function testUnePageLourdementRestructureeNeInondePasLeMasque(): void
+    {
+        // Restructuration massive (tags entièrement remplacés) : aucun appariement
+        // possible, donc une avalanche de candidats positionnels peu fiables. Le
+        // garde-fou renonce (`[]`) plutôt que d'inonder le masque.
+        $lignesA = '';
+        $lignesB = '';
+        for ($n = 0; $n < 60; $n++) {
+            $lignesA .= '<p>ligne ' . $n . '</p>';
+            $lignesB .= '<div>bloc ' . $n . '</div>';
+        }
+        $a = '<main id="contenu">' . $lignesA . '</main>';
+        $b = '<main id="contenu">' . $lignesB . '</main>';
+
+        self::assertSame([], $this->calibrator()->calibrate($a, $b));
+    }
 }
