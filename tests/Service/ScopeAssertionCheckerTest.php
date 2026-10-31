@@ -27,14 +27,16 @@ class ScopeAssertionCheckerTest extends TestCase
     }
 
     /**
-     * Régression #19 : un `--expect-selector` syntaxiquement invalide doit échouer
-     * proprement en nommant le sélecteur ET l'option, pas remonter une
-     * SyntaxErrorException brute depuis le parseur CSS.
+     * Régression #19 : un sélecteur syntaxiquement invalide passé en direct au
+     * service doit échouer proprement en nommant le sélecteur fautif (via le
+     * masquage), pas remonter une SyntaxErrorException brute du parseur CSS. Le
+     * nom de l'option `--expect-selector` est ajouté à la frontière CLI
+     * (cf. HtmlCompareCommandTest).
      */
-    public function testUnExpectSelectorInvalideEchoueProprement(): void
+    public function testUnSelecteurInvalideEchoueProprement(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('--expect-selector');
+        $this->expectExceptionMessage('Invalid CSS selector "div[["');
 
         $this->checker()->check('<div>a</div>', '<div>b</div>', ['div[[']);
     }

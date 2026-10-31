@@ -51,4 +51,16 @@ class CssSelectorValidatorTest extends TestCase
             self::assertStringContainsString('calibrate --apply', $e->getMessage());
         }
     }
+
+    /**
+     * Régression #19 : `isValid` sert à trier les candidats GÉNÉRÉS par
+     * calibrate — un candidat invalide (p. ex. `#price:main`) est écarté pour que
+     * les candidats valides restent appliqués, au lieu d'avorter tout l'apply.
+     */
+    public function testIsValidTrieLesCandidats(): void
+    {
+        self::assertTrue(CssSelectorValidator::isValid('.compteur'));
+        self::assertFalse(CssSelectorValidator::isValid('#price:main'));
+        self::assertFalse(CssSelectorValidator::isValid('div[['));
+    }
 }

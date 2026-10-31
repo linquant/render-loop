@@ -20,6 +20,12 @@ use Symfony\Component\CssSelector\Exception\ExceptionInterface as CssSelectorExc
  */
 final class CssSelectorValidator
 {
+    /**
+     * Convertisseur partagé : le construire une seule fois évite d'en allouer un
+     * par sélecteur dans les boucles (mask-add, calibrate --apply).
+     */
+    private static ?CssSelectorConverter $converter = null;
+
     public static function toXPath(CssSelectorConverter $converter, string $selector, string $context): string
     {
         try {
@@ -35,10 +41,35 @@ final class CssSelectorValidator
 
     /**
      * Valide un sélecteur sans en garder le XPath — sert à le refuser avant de
-     * l'écrire dans la config (calibrate --apply, mask-add).
+     * l'écrire dans la config (mask-add) ou de le passer au masquage
+     * (--expect-selector).
      */
     public static function assertValid(string $selector, string $context): void
     {
-        self::toXPath(new CssSelectorConverter(), $selector, $context);
+        self::toXPath(self::sharedConverter(), $selector, $context);
+    }
+
+    /**
+     * Le sélecteur est-il syntaxiquement valide ? Pour trier des candidats
+     * GÉNÉRÉS par l'outil (calibrate) : on ignore les invalides au lieu d'avorter.
+     */
+    public static function isValid(string $selector): bool
+    {
+        try {
+            self::sharedConverter()->toXPath($selector);
+
+            return true;
+        } catch (CssSelectorException $e) {
+            return false;
+        }
+    }
+
+    private static function sharedConverter(): CssSelectorConverter
+    {
+        if (self::$converter === null) {
+            self::$converter = new CssSelectorConverter();
+        }
+
+        return self::$converter;
     }
 }

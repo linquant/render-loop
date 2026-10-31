@@ -33,13 +33,11 @@ final class ScopeAssertionChecker
      */
     public function check(string $before, string $after, array $expectedSelectors): ScopeAssertion
     {
-        // Valider chaque sélecteur attendu AVANT de l'ajouter au masque de bruit :
-        // un `--expect-selector` invalide doit échouer proprement en nommant
-        // l'option, pas planter plus loin dans la normalisation.
-        foreach ($expectedSelectors as $selector) {
-            CssSelectorValidator::assertValid($selector, '--expect-selector');
-        }
-
+        // La validation des sélecteurs attendus vit à la frontière CLI
+        // (HtmlCompareCommand), avant la capture, où le nom `--expect-selector`
+        // est connu — inutile de la refaire ici. Un sélecteur invalide passé en
+        // direct reste néanmoins rejeté par le masquage (removeMatching convertit
+        // via CssSelectorValidator), donc check() ne peut pas se taire dessus.
         $base = new HtmlNormalizer($this->config);
         $masked = new HtmlNormalizer($this->config->withAdditionalNoise($expectedSelectors));
 

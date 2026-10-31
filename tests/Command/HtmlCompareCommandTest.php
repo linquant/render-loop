@@ -375,6 +375,30 @@ class HtmlCompareCommandTest extends TestCase
     }
 
     /**
+     * Régression #19 : un `--expect-selector` syntaxiquement invalide est rejeté
+     * à la frontière CLI, avec un message qui nomme l'option — avant toute capture
+     * (ici via compare, qui ne touche pas le réseau).
+     */
+    public function testExpectSelectorInvalideEchoueEnNommantLOption(): void
+    {
+        [$tester, $from, $to] = $this->deuxHtml('<div>a</div>', '<div>b</div>');
+
+        $tester->execute(
+            [
+                '--action' => 'compare',
+                '--from' => $from,
+                '--to' => $to,
+                '--dir' => $this->dir,
+                '--expect-selector' => ['div[['],
+            ],
+            ['capture_stderr_separately' => true],
+        );
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('--expect-selector', $tester->getErrorOutput());
+    }
+
+    /**
      * @param list<string> $noise
      */
     private function tempConfig(array $noise): string
