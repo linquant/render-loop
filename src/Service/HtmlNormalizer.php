@@ -69,11 +69,23 @@ final class HtmlNormalizer
         $root = $this->config->rootSelector();
         if ($root !== null && $root !== '') {
             $scoped = $xpath->query($this->converter->toXPath($root));
-            $node = ($scoped !== false) ? $scoped->item(0) : null;
-            if ($node instanceof \DOMNode) {
-                $html = $dom->saveHTML($node);
+            if ($scoped !== false && $scoped->length > 0) {
+                // Sérialiser TOUS les nœuds correspondants, pas seulement le
+                // premier : sinon un changement dans un second `.box` resterait
+                // invisible (les deux rendus se normaliseraient à l'identique).
+                // Voir issue #21.
+                $parts = [];
+                foreach (iterator_to_array($scoped) as $node) {
+                    if (!$node instanceof \DOMNode) {
+                        continue;
+                    }
+                    $serialized = $dom->saveHTML($node);
+                    if ($serialized !== false) {
+                        $parts[] = trim($serialized);
+                    }
+                }
 
-                return $html === false ? '' : trim($html);
+                return implode("\n", $parts);
             }
         }
 

@@ -59,6 +59,32 @@ class HtmlNormalizerTest extends TestCase
         self::assertStringNotContainsString('menu', $out);
     }
 
+    /**
+     * Régression #21 : quand le root_selector matche plusieurs nœuds, un
+     * changement dans un autre que le premier doit rester visible. Avant le
+     * correctif, seul le premier `.box` était sérialisé et les deux rendus se
+     * normalisaient à l'identique.
+     */
+    public function testRootSelectorMultipleSerialiseTousLesNoeuds(): void
+    {
+        $normalizer = $this->normalizer('.box');
+        $a = '<html><body><div class="box">A</div><div class="box">B</div></body></html>';
+        $b = '<html><body><div class="box">A</div><div class="box">CHANGE</div></body></html>';
+
+        self::assertNotSame($normalizer->normalize($a), $normalizer->normalize($b));
+        self::assertStringContainsString('CHANGE', $normalizer->normalize($b));
+    }
+
+    public function testRootSelectorMultipleGardeLesDeuxSousArbres(): void
+    {
+        $html = '<body><div class="box">premier</div><div class="box">second</div></body>';
+
+        $out = $this->normalizer('.box')->normalize($html);
+
+        self::assertStringContainsString('premier', $out);
+        self::assertStringContainsString('second', $out);
+    }
+
     public function testEstIdempotent(): void
     {
         $normalizer = $this->normalizer(null, ['.phpdebugbar']);
