@@ -186,4 +186,81 @@ class ChangeExtractorTest extends TestCase
 
         self::assertSame([], (new ChangeExtractor())->extract($before, $after));
     }
+
+    /**
+     * #25 : le calcul des positions `nth-of-type` est désormais mémorisé en un
+     * passage par parent. On vérifie qu'il reste EXACT avec beaucoup de frères —
+     * l'élément modifié doit toujours porter la bonne position dans son sélecteur.
+     */
+    public function testLaPositionNthOfTypeResteExacteAvecDeNombreuxFreres(): void
+    {
+        $before = '<div>';
+        $after = '<div>';
+        for ($i = 1; $i <= 6; $i++) {
+            $cell = $i === 4 ? '<p>old</p>' : "<p>p$i</p>";
+            $before .= $cell;
+            $after .= ($i === 4 ? '<p>new</p>' : "<p>p$i</p>");
+        }
+        $before .= '</div>';
+        $after .= '</div>';
+
+        $changes = (new ChangeExtractor())->extract($before, $after);
+
+        self::assertCount(1, $changes);
+        self::assertSame('div:nth-of-type(1) > p:nth-of-type(4)', $changes[0]->selector);
+        self::assertSame('old', $changes[0]->before);
+        self::assertSame('new', $changes[0]->after);
+    }
+
+    /**
+     * #25 : garde anti-régression de performance ciblée sur {@see
+     * ChangeExtractor::positionSuffix()}.
+     *
+     * On empile des milliers de frères `dt`/`dd` sous un seul parent : c'est le cas
+     * où `positionSuffix()` rebalayait TOUS les frères à chaque élément, soit un coût
+     * quadratique (plusieurs secondes, voire bien plus, avant le correctif). La
+     * structure `dl` est choisie à dessein pour que l'ancre `context` reste en O(1)
+     * (le `dt` frère précédent est trouvé immédiatement), de sorte que ce test isole
+     * le passage corrigé.
+     *
+     * On asserte sur un COMPTE D'OPÉRATIONS déterministe (le nombre de frères
+     * visités, exposé par {@see ChangeExtractor::siblingVisits()}) plutôt que sur un
+     * temps mural : une borne en secondes dépend de la charge CI / de xdebug et peut
+     * flaker. Avec le cache, chaque parent n'est balayé qu'une fois, donc le total
+     * est linéaire (~2 documents × nombre d'enfants) ; un retour à la complexité
+     * quadratique de #25 le ferait bondir en O(n²), loin au-dessus de la borne.
+     */
+    public function testUnGrosNombreDeFreresResteSousUneBorneLineaireDOperations(): void
+    {
+        $pairs = 4000;
+        $before = '<dl>';
+        $after = '<dl>';
+        for ($i = 0; $i < $pairs; $i++) {
+            $before .= "<dt>k$i</dt><dd>" . ($i === 0 ? 'old' : "v$i") . '</dd>';
+            $after .= "<dt>k$i</dt><dd>" . ($i === 0 ? 'new' : "v$i") . '</dd>';
+        }
+        $before .= '</dl>';
+        $after .= '</dl>';
+
+        $extractor = new ChangeExtractor();
+        $changes = $extractor->extract($before, $after);
+
+        self::assertCount(1, $changes);
+        self::assertSame('old', $changes[0]->before);
+        self::assertSame('new', $changes[0]->after);
+
+        // 2 balises × $pairs enfants, sur 2 documents.
+        $elements = 2 * 2 * $pairs;
+        // Linéaire : une poignée de visites par enfant (ici ~1). La borne large
+        // absorbe les petites variations de structure ; un O(n²) ferait ~($pairs²).
+        self::assertLessThan(
+            5 * $elements,
+            $extractor->siblingVisits(),
+            sprintf(
+                'Trop de frères visités (%d pour %d éléments) : la complexité quadratique de positionSuffix() est probablement revenue.',
+                $extractor->siblingVisits(),
+                $elements
+            )
+        );
+    }
 }
