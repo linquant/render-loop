@@ -84,4 +84,37 @@ class NoiseCalibratorTest extends TestCase
 
         self::assertNotSame($avant, $apres, 'un changement réel de prix ne doit pas être masqué par la calibration');
     }
+
+    public function testUnIdPartageNEstPasProposeEtNeMasquePasUnVraiChangement(): void
+    {
+        // HTML malformé (que ce codebase traite) : une horloge volatile et un prix
+        // stable partagent id="val". Masquer `#val` rendrait le golden aveugle au
+        // prix — le candidat doit rester unique, donc retomber sur un chemin
+        // positionnel plutôt que sur l'id dupliqué.
+        $a = '<html><body><span id="val">10:00:01</span><span id="val">1295.00</span></body></html>';
+        $b = '<html><body><span id="val">10:00:02</span><span id="val">1295.00</span></body></html>';
+
+        $selecteurs = $this->calibrator()->calibrate($a, $b);
+
+        self::assertNotContains('#val', $selecteurs, 'un sélecteur d\'id partagé masquerait trop large');
+        self::assertCount(1, $selecteurs);
+
+        // Appliqué comme masque, le candidat laisse voir un vrai changement de prix.
+        $masque = new HtmlNormalizer(new NormalizerConfig(null, $selecteurs));
+        $avant = $masque->normalize($a);
+        $apres = $masque->normalize(str_replace('1295.00', '0.00', $b));
+
+        self::assertNotSame($avant, $apres, 'un changement réel de prix ne doit pas être masqué par un id dupliqué');
+    }
+
+    public function testUneClasseSepareeParTabulationEstReconnueUnique(): void
+    {
+        // Séparateur blanc HTML autre que l'espace : la première classe doit être
+        // extraite avec le MÊME découpage que la table de fréquence, sinon une
+        // classe unique est rejetée et on retombe sur un chemin positionnel fragile.
+        $a = "<main id=\"c\"><p class=\"ts\tvolatile\">Visiteurs : 416</p></main>";
+        $b = "<main id=\"c\"><p class=\"ts\tvolatile\">Visiteurs : 714</p></main>";
+
+        self::assertSame(['.ts'], $this->calibrator()->calibrate($a, $b));
+    }
 }
