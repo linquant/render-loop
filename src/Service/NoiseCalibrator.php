@@ -16,13 +16,21 @@ namespace RenderLoop\Service;
  * `tag[name="…"]`, sinon un chemin positionnel `…:nth-of-type(n)` (dernier
  * recours, plus fragile — à relire avant de figer dans un masque).
  *
- * Les captures portant sur la MÊME page, leur structure est presque identique : un
- * parcours positionnel aligné est valide. Une insertion/suppression locale (bandeau,
- * barre de debug) décale les listes sans invalider le reste : on resynchronise et on
- * poursuit le parcours plutôt que d'abandonner à la première divergence.
+ * Les captures portant sur la MÊME page, leur structure est presque identique. On
+ * APPARIE les éléments des deux captures par un chemin d'identité stable (`keyPath` :
+ * suite de `:nth-of-type` ancrée sur un `#id`), comme {@see ChangeExtractor::textRuns}
+ * le fait déjà — plutôt que de réécrire à la main un alignement de séquences (double
+ * curseur), fragile et source de faux positifs. Une insertion/suppression locale
+ * (bandeau, barre de debug, bloc promo qui tourne) ne décale pas le `nth-of-type` des
+ * éléments d'un AUTRE tag : leur appariement est conservé et le bruit situé après
+ * reste détecté. Le bloc inséré/retiré lui-même EST du bruit non déterministe : il est
+ * proposé (ADDED/REMOVED). Au-delà de {@see self::MAX_CANDIDATES} candidats — page
+ * vraiment restructurée — on renonce (`[]`) plutôt que d'inonder le masque.
  */
 final class NoiseCalibrator
 {
+    private const MAX_CANDIDATES = 50;
+
     private HtmlNormalizer $normalizer;
 
     public function __construct(HtmlNormalizer $normalizer)
@@ -56,44 +64,90 @@ final class NoiseCalibrator
             return [];
         }
 
-        $elementsA = $this->elements($docA);
-        $elementsB = $this->elements($docB);
-        $countA = count($elementsA);
-        $countB = count($elementsB);
+        // Appariement par chemin d'identité (keyPath), robuste à l'insertion, plutôt
+        // qu'un double curseur glouton. Chaque run = la signature (texte direct +
+        // attributs propres) de l'élément à ce chemin.
+        $runsA = $this->runs($docA);
+        $runsB = $this->runs($docB);
 
-        // Parcours aligné par deux curseurs. Un élément inséré/retiré (une barre de
-        // debug, un bandeau, un bloc promo qui tourne) décale les deux listes : on
-        // ne s'arrête PLUS à la première divergence (sinon tout le bruit situé après
-        // — horodatages, compteurs — passe inaperçu). On resynchronise en sautant
-        // l'index désaligné du côté qui a l'élément en trop, puis on continue.
         $selectors = [];
-        $i = 0;
-        $j = 0;
-        while ($i < $countA && $j < $countB) {
-            $a = $elementsA[$i];
-            $b = $elementsB[$j];
 
-            if ($a->tagName !== $b->tagName) {
-                if ($j + 1 < $countB && $a->tagName === $elementsB[$j + 1]->tagName) {
-                    $j++; // élément inséré dans B : on le saute
-                } elseif ($i + 1 < $countA && $elementsA[$i + 1]->tagName === $b->tagName) {
-                    $i++; // élément inséré dans A : on le saute
-                } else {
-                    $i++; // divergence non résoluble : on avance des deux côtés
-                    $j++;
-                }
-                continue;
+        // Ordre du document « B » : signature modifiée (même chemin, contenu dérivé)
+        // ou nœud AJOUTÉ (chemin absent de A — un bloc inséré, donc du bruit).
+        foreach ($runsB as $path => $run) {
+            if (!isset($runsA[$path]) || $runsA[$path]['signature'] !== $run['signature']) {
+                $selectors[] = $this->selectorFor($run['element']);
             }
+        }
 
-            if ($this->directText($a) !== $this->directText($b)
-                || $this->attributesSignature($a) !== $this->attributesSignature($b)) {
-                $selectors[] = $this->selectorFor($a);
+        // Puis les nœuds RETIRÉS (présents dans A, absents de B).
+        foreach ($runsA as $path => $run) {
+            if (!isset($runsB[$path])) {
+                $selectors[] = $this->selectorFor($run['element']);
             }
-            $i++;
-            $j++;
+        }
+
+        // Garde-fou : une page vraiment restructurée produit une avalanche de
+        // candidats positionnels peu fiables — on renonce plutôt que d'inonder le
+        // masque (même cascade que ChangeExtractor::MAX_CHANGES).
+        if (count($selectors) > self::MAX_CANDIDATES) {
+            return [];
         }
 
         return $selectors;
+    }
+
+    /**
+     * Un run par élément, indexé par son chemin d'identité stable ({@see keyPath}).
+     * La signature combine le texte direct et les attributs propres : deux éléments
+     * de même chemin sont « identiques » ssi leurs signatures coïncident.
+     *
+     * @return array<string, array{signature: string, element: \DOMElement}>
+     */
+    private function runs(\DOMDocument $document): array
+    {
+        $runs = [];
+        foreach ($this->elements($document) as $element) {
+            $path = $this->keyPath($element);
+            if ($path === '') {
+                continue; // html/body : pas d'identité propre
+            }
+            $runs[$path] = [
+                'signature' => $this->directText($element) . "\0" . $this->attributesSignature($element),
+                'element' => $element,
+            ];
+        }
+
+        return $runs;
+    }
+
+    /**
+     * Chemin d'IDENTITÉ stable d'un élément, pour l'APPARIER entre deux captures (pas
+     * pour le masquer) : ancré sur le premier `#id` rencontré en remontant, sinon une
+     * suite de `tag:nth-of-type(n)` jusqu'à `body`. Insérer/retirer un bloc d'un AUTRE
+     * tag ne change pas le `nth-of-type` des éléments suivants, donc leur appariement
+     * est conservé. `html`/`body` n'ont pas d'identité propre → chaîne vide (ignorés).
+     */
+    private function keyPath(\DOMElement $element): string
+    {
+        $parts = [];
+        $node = $element;
+
+        while ($node instanceof \DOMElement) {
+            $tag = strtolower($node->tagName);
+            if ($tag === 'html' || $tag === 'body') {
+                break;
+            }
+            $id = $node->getAttribute('id');
+            if ($id !== '') {
+                array_unshift($parts, '#' . $id);
+                break;
+            }
+            array_unshift($parts, $tag . ':nth-of-type(' . $this->indexOfType($node) . ')');
+            $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
+        }
+
+        return implode(' > ', $parts);
     }
 
     private function load(string $html): ?\DOMDocument
