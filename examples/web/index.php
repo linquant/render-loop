@@ -30,11 +30,12 @@ use RenderLoop\Service\NormalizerConfig;
 use RenderLoop\Service\UrlGuard;
 
 require __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/allowlist.php';
 
 // --- Configuration (an integrator would read these from their app) ----------
 $snapshotDir = sys_get_temp_dir() . '/render-loop-example';
-$host = is_string($_SERVER['HTTP_HOST'] ?? null) ? $_SERVER['HTTP_HOST'] : 'localhost';
-$allowedHosts = [$host, 'localhost', '127.0.0.1'];
+$envAllowed = getenv('RENDERLOOP_ALLOWED_HOSTS');
+$allowedHosts = renderloop_allowed_hosts($envAllowed === false ? null : $envAllowed);
 $sessionCookieName = 'PHPSESSID';
 
 $service = static function () use ($snapshotDir): HtmlCompareService {

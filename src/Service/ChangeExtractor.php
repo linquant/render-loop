@@ -97,7 +97,7 @@ final class ChangeExtractor
     }
 
     /**
-     * Un « run » par élément porteur de texte direct, indexé par son chemin.
+     * Un « run » par élément porteur de texte direct, indexé par sa `key` d'alignement.
      *
      * @return array<string, array{text: string, selector: string, context: ?string}>
      */
@@ -108,10 +108,11 @@ final class ChangeExtractor
         }
 
         $dom = $this->load($html);
+        $idCounts = $this->idCounts($dom);
         $runs = [];
 
         // Caches de positions `nth-of-type` LOCAUX à cette passe (= à ce document),
-        // threadés par référence dans selector()/positionSuffix(). Les garder locaux
+        // threadés par référence dans paths()/positionSuffix(). Les garder locaux
         // plutôt qu'en propriétés d'instance rend leur durée de vie structurelle :
         // ils naissent et meurent avec la passe, donc aucun `spl_object_id` d'un
         // document libéré (et recyclé) ne peut subsister, et aucune carte O(n) n'est
@@ -129,18 +130,41 @@ final class ChangeExtractor
             if ($text === '') {
                 continue;
             }
-            $selector = $this->selector($el, $nthCache, $indexedParents);
-            if ($selector === '') {
+            $paths = $this->paths($el, $idCounts, $nthCache, $indexedParents);
+            if ($paths['selector'] === '') {
                 continue;
             }
-            $runs[$selector] = [
+            // Indexé par la `key` d'alignement, jamais par le `selector` lisible :
+            // deux frères qui partagent une classe — ou un id dupliqué — produisent
+            // le même `selector`, et l'indexer par cette chaîne ferait écraser les
+            // précédents par le dernier (#20). Voir {@see self::paths()}.
+            $runs[$paths['key']] = [
                 'text' => $text,
-                'selector' => $selector,
+                'selector' => $paths['selector'],
                 'context' => $this->context($el),
             ];
         }
 
         return $runs;
+    }
+
+    /**
+     * Nombre d'occurrences de chaque `id` dans le document. Sert à n'ancrer la
+     * clé d'alignement que sur un id RÉELLEMENT unique (voir {@see self::paths()}).
+     *
+     * @return array<string, int>
+     */
+    private function idCounts(\DOMDocument $dom): array
+    {
+        $counts = [];
+        foreach ($dom->getElementsByTagName('*') as $el) {
+            $id = $el->getAttribute('id');
+            if ($id !== '') {
+                $counts[$id] = ($counts[$id] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
     }
 
     private function load(string $html): \DOMDocument
@@ -177,16 +201,40 @@ final class ChangeExtractor
     }
 
     /**
-     * Chemin CSS best-effort. S'arrête (et s'ancre) sur le premier `#id` rencontré
-     * en remontant ; sinon `tag.classe` quand il y a des classes, sinon
-     * `tag:nth-of-type(n)`. `html`/`body` sont omis pour rester court.
+     * Calcule en UNE SEULE remontée d'ancêtres la `key` d'alignement et le
+     * `selector` lisible d'un élément. Les deux partageaient auparavant deux
+     * descentes quasi identiques (et deux appels à {@see self::positionSuffix()}
+     * par niveau) ; ici le `positionSuffix` d'un niveau est calculé au plus une
+     * fois et réutilisé. `html`/`body` sont omis pour rester court.
      *
-     * @param array<int, int>  $nthCache       cache de positions, threadé par la passe
-     * @param array<int, bool> $indexedParents parents déjà indexés, threadé par la passe
+     * Les caches `$nthCache`/`$indexedParents` sont threadés par la passe (#25) :
+     * `positionSuffix()` ne balaie les frères d'un parent qu'une seule fois pour
+     * tout le document, ce qui garde l'extraction linéaire même si paths() est
+     * appelé pour chaque élément porteur de texte.
+     *
+     * Deux ancrages distincts, d'où la légère asymétrie ci-dessous :
+     *  - le `selector` (lisible) s'ancre — et s'arrête — sur le PREMIER `#id`
+     *    rencontré ; sinon `tag.classe`, sinon `tag:nth-of-type(n)` ;
+     *  - la `key` (indexation/alignement) ne s'ancre que sur un id RÉELLEMENT
+     *    unique dans le document. Un id dupliqué (HTML legacy invalide) retombe
+     *    sur le positionnel, sans quoi deux frères à id dupliqué partageraient la
+     *    clé et le dernier écraserait le premier → `changes[]` raterait la
+     *    modification (#20). Ancrer la clé sur un id unique rend le sous-arbre
+     *    INDÉPENDANT de la position de ses ancêtres : insérer un frère de même
+     *    balise plus haut ne décale plus le `nth-of-type` du conteneur à id et ne
+     *    cascade donc plus en faux couples REMOVED+ADDED chez tous ses descendants
+     *    (#32).
+     *
+     * @param array<string, int> $idCounts       occurrences de chaque id dans le document
+     * @param array<int, int>    $nthCache       cache de positions, threadé par la passe
+     * @param array<int, bool>   $indexedParents parents déjà indexés, threadé par la passe
+     * @return array{selector: string, key: string}
      */
-    private function selector(\DOMElement $el, array &$nthCache, array &$indexedParents): string
+    private function paths(\DOMElement $el, array $idCounts, array &$nthCache, array &$indexedParents): array
     {
-        $parts = [];
+        $selectorParts = [];
+        $keyParts = [];
+        $selectorSealed = false;
         $node = $el;
 
         while ($node instanceof \DOMElement) {
@@ -196,23 +244,49 @@ final class ChangeExtractor
             }
 
             $id = $node->getAttribute('id');
-            if ($id !== '') {
-                array_unshift($parts, '#' . $id);
+            $uniqueId = $id !== '' && ($idCounts[$id] ?? 0) === 1;
+            $position = null; // positionSuffix() partagé, calculé au plus une fois par niveau.
+
+            // --- clé d'alignement ---
+            if ($uniqueId) {
+                array_unshift($keyParts, '#' . $id);
+            } else {
+                $position = $this->positionSuffix($node, $nthCache, $indexedParents);
+                array_unshift($keyParts, $tag . $position);
+            }
+
+            // --- selector lisible (figé sur le premier id, dupliqué ou non) ---
+            if (!$selectorSealed) {
+                if ($id !== '') {
+                    array_unshift($selectorParts, '#' . $id);
+                    $selectorSealed = true;
+                } else {
+                    $class = $this->collapse($node->getAttribute('class'));
+                    if ($class !== '') {
+                        array_unshift($selectorParts, $tag . '.' . implode('.', explode(' ', $class)));
+                    } else {
+                        if ($position === null) {
+                            $position = $this->positionSuffix($node, $nthCache, $indexedParents);
+                        }
+                        array_unshift($selectorParts, $tag . $position);
+                    }
+                }
+            }
+
+            // Clé ancrée (id unique) ⇒ selector ancré sur le même id ⇒ terminé.
+            // Sur un id dupliqué, la clé continue en positionnel vers le haut
+            // alors que le selector reste figé.
+            if ($uniqueId) {
                 break;
             }
 
-            $class = $this->collapse($node->getAttribute('class'));
-            if ($class !== '') {
-                $segment = $tag . '.' . implode('.', explode(' ', $class));
-            } else {
-                $segment = $tag . $this->positionSuffix($node, $nthCache, $indexedParents);
-            }
-
-            array_unshift($parts, $segment);
             $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
         }
 
-        return implode(' > ', $parts);
+        return [
+            'selector' => implode(' > ', $selectorParts),
+            'key' => implode(' > ', $keyParts),
+        ];
     }
 
     /**
@@ -223,11 +297,11 @@ final class ChangeExtractor
      * est un chemin un peu plus verbeux ; la contrepartie est l'alignement fiable.
      *
      * La position est calculée en UN SEUL balayage par parent, mémorisé dans
-     * {@see self::$nthCache} : au premier élément rencontré sous un parent, on
-     * numérote tous ses frères d'un coup. Les appels suivants pour les frères (et
-     * pour chaque élément du chemin dans {@see self::selector()}) sont alors en
-     * O(1). Avant (#25), chaque appel rebalayait tous les frères → O(n²) et plusieurs
-     * secondes sur un tableau de milliers de lignes.
+     * `$nthCache` : au premier élément rencontré sous un parent, on numérote tous
+     * ses frères d'un coup. Les appels suivants pour les frères (et pour chaque
+     * élément du chemin dans {@see self::paths()}) sont alors en O(1). Avant (#25),
+     * chaque appel rebalayait tous les frères → O(n²) et plusieurs secondes sur un
+     * tableau de milliers de lignes.
      *
      * @param array<int, int>  $nthCache       cache de positions, threadé par la passe
      * @param array<int, bool> $indexedParents parents déjà indexés, threadé par la passe

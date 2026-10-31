@@ -8,6 +8,7 @@ use RenderLoop\Model\GoldenManifest;
 use RenderLoop\Model\Snapshot;
 use RenderLoop\Model\SnapshotRepository;
 use RenderLoop\Service\Change;
+use RenderLoop\Service\CssSelectorValidator;
 use RenderLoop\Service\CurlCaptureStrategy;
 use RenderLoop\Service\DiffResult;
 use RenderLoop\Service\GitRevision;
@@ -172,6 +173,11 @@ HELP);
 
     private function doRecheck(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
     {
+        // Valider `--expect-selector` AVANT la capture réseau : une typo comme
+        // `div[[` doit échouer immédiatement, pas après l'aller-retour HTTP et la
+        // normalisation.
+        $this->assertExpectedSelectorsValid($input);
+
         $result = $service->recheck(
             $this->requireOption($input, 'url'),
             $this->curlStrategy($input),
@@ -185,6 +191,8 @@ HELP);
 
     private function doCompare(InputInterface $input, OutputInterface $output, HtmlCompareService $service): int
     {
+        $this->assertExpectedSelectorsValid($input);
+
         $from = $this->requireOption($input, 'from');
         $to = $this->requireOption($input, 'to');
 
@@ -248,12 +256,27 @@ HELP);
         );
 
         $apply = $input->getOption('apply') === true;
-        $applied = ($apply && $selectors !== [])
-            ? (new NoiseConfigWriter())->append($this->configPath($input), $selectors)
-            : [];
+        $applied = [];
+        $skipped = [];
+        if ($apply && $selectors !== []) {
+            // Les candidats sont GÉNÉRÉS par NoiseCalibrator, pas saisis par
+            // l'utilisateur : un candidat invalide (p. ex. `#price:main` dérivé
+            // d'un id légal `price:main` non échappé) ne doit PAS faire échouer
+            // tout l'apply et perdre les sélecteurs valides. On l'ignore et on
+            // écrit les valides (cf. issue #19).
+            $valid = [];
+            foreach ($selectors as $selector) {
+                if (CssSelectorValidator::isValid($selector)) {
+                    $valid[] = $selector;
+                } else {
+                    $skipped[] = $selector;
+                }
+            }
+            $applied = (new NoiseConfigWriter())->append($this->configPath($input), $valid);
+        }
 
         if ($this->isJson($input)) {
-            $output->writeln($this->json(['candidates' => $selectors, 'applied' => $applied]));
+            $output->writeln($this->json(['candidates' => $selectors, 'applied' => $applied, 'skipped' => $skipped]));
 
             return self::SUCCESS;
         }
@@ -267,6 +290,11 @@ HELP);
         if ($apply) {
             $output->writeln(sprintf('<comment>Noise selectors written to %s:</comment>', $this->configPath($input)));
             foreach ($selectors as $selector) {
+                if (in_array($selector, $skipped, true)) {
+                    $output->writeln(sprintf('  ! %s (skipped: invalid selector)', $selector));
+
+                    continue;
+                }
                 $isNew = in_array($selector, $applied, true);
                 $output->writeln(sprintf('  %s %s%s', $isNew ? '+' : '=', $selector, $isNew ? '' : ' (already present)'));
             }
@@ -292,6 +320,12 @@ HELP);
         $selectors = is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
         if ($selectors === []) {
             throw new \InvalidArgumentException('mask-add requires at least one --selector');
+        }
+
+        // Valider avant écriture : un sélecteur CSS invalide ne doit jamais entrer
+        // dans la config (il ferait planter chaque run suivant).
+        foreach ($selectors as $selector) {
+            CssSelectorValidator::assertValid($selector, '--selector');
         }
 
         $applied = (new NoiseConfigWriter())->append($this->configPath($input), $selectors);
@@ -396,7 +430,7 @@ HELP);
                     'summary' => 'Capture the page several times unchanged; whatever differs is noise. Suggests (or, with --apply, writes) the selectors to mask.',
                     'required' => ['url'],
                     'optional' => ['samples', 'apply', 'config', 'dir', 'format', 'allow-host', 'cookie-name', 'method', 'header', 'data', 'ajax'],
-                    'output' => 'with -f json: {"candidates":[string],"applied":[string]}',
+                    'output' => 'with -f json: {"candidates":[string],"applied":[string],"skipped":[string]} (skipped = generated candidates dropped as syntactically invalid; the valid ones are still applied).',
                     'exit_code' => '0.',
                 ],
                 [
@@ -680,6 +714,19 @@ HELP);
         $raw = $input->getOption('expect-selector');
 
         return is_array($raw) ? array_values(array_filter($raw, 'is_string')) : [];
+    }
+
+    /**
+     * Rejette tout `--expect-selector` invalide à la frontière CLI (où le nom de
+     * l'option est connu) et AVANT toute capture : le message nomme l'option. La
+     * validation vit ici, pas dans ScopeAssertionChecker, qui n'a pas à connaître
+     * le nom de l'option CLI.
+     */
+    private function assertExpectedSelectorsValid(InputInterface $input): void
+    {
+        foreach ($this->expectedSelectors($input) as $selector) {
+            CssSelectorValidator::assertValid($selector, '--expect-selector');
+        }
     }
 
     private function renderDiff(InputInterface $input, OutputInterface $output, DiffResult $diff, string $header, ?ScopeAssertion $assertion = null): int
