@@ -93,42 +93,50 @@ class SnapshotRepositoryTest extends TestCase
     }
 
     /**
-     * Un id malveillant (traversée de répertoire) ne doit jamais lire un
-     * fichier hors du dossier racine : get() le refuse et renvoie null, même si
-     * un .json valide existe à l'emplacement visé.
+     * #24 : get() découpe l'id au dernier « _ » pour composer un chemin. Un id
+     * tel que « ../secret_<clé> » remonte d'un cran et lit un .json valide hors
+     * du dossier racine. La validation doit le refuser (null), même si la cible
+     * existe réellement.
      */
-    public function testGetRefuseLaTraverseeDeRepertoire(): void
+    public function testGetRefuseLaLectureHorsDuDossierRacine(): void
     {
         $repo = new SnapshotRepository($this->dir . '/snapshots');
+        mkdir($this->dir . '/snapshots', 0775, true);
 
-        // Un snapshot bien réel, mais HORS du dossier racine du dépôt.
+        // Une capture valide, mais DÉPOSÉE hors du dossier racine du dépôt.
+        $evil = new Snapshot('https://evil.local/x', 1000.0, '<p>secret</p>', '../secret');
         $outside = $this->dir . '/secret';
         mkdir($outside, 0775, true);
-        file_put_contents(
-            $outside . '/pwned.json',
-            json_encode(Snapshot::create('https://evil.local/x', '<p>secret</p>')->toArray()),
-        );
+        $cible = $outside . '/' . $evil->key() . '.json';
+        file_put_contents($cible, (string) json_encode($evil->toArray()));
 
-        self::assertNull($repo->get('../secret/pwned'));
-        self::assertNull($repo->get('..\\secret\\pwned'));
-        self::assertNull($repo->get('/etc/passwd'));
+        // rootDir/../secret/<clé>.json pointe exactement sur $cible : sans
+        // validation, get() le lirait et renverrait la capture.
+        self::assertNull($repo->get('../secret_' . $evil->key()));
+        self::assertNull($repo->get('/etc/passwd_x'));
         self::assertNull($repo->get('.hidden_1'));
     }
 
     /**
-     * delete() délègue à get() : la même validation doit l'empêcher d'effacer un
-     * fichier hors du dossier racine.
+     * #24 : delete() délègue à get(). Sans validation, un id qui remonte hors du
+     * dossier racine ferait unlink() sur la cible extérieure ; la validation de
+     * get() doit l'en empêcher (false, et le fichier survit).
      */
-    public function testDeleteRefuseLaTraverseeDeRepertoire(): void
+    public function testDeleteRefuseLEffacementHorsDuDossierRacine(): void
     {
         $repo = new SnapshotRepository($this->dir . '/snapshots');
+        mkdir($this->dir . '/snapshots', 0775, true);
 
+        // La capture déposée porte un champ folder « ../secret » et une clé qui
+        // correspond au nom du fichier : sans validation, delete() recomposerait
+        // rootDir/../secret/<clé>.json et effacerait réellement la cible.
+        $evil = new Snapshot('https://evil.local/x', 1000.0, '<p>secret</p>', '../secret');
         $outside = $this->dir . '/secret';
         mkdir($outside, 0775, true);
-        $cible = $outside . '/pwned.json';
-        file_put_contents($cible, json_encode(Snapshot::create('https://evil.local/x', '<p>secret</p>')->toArray()));
+        $cible = $outside . '/' . $evil->key() . '.json';
+        file_put_contents($cible, (string) json_encode($evil->toArray()));
 
-        self::assertFalse($repo->delete('../secret/pwned'));
+        self::assertFalse($repo->delete('../secret_' . $evil->key()));
         self::assertFileExists($cible);
     }
 
