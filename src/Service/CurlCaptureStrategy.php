@@ -78,17 +78,41 @@ final class CurlCaptureStrategy implements CaptureStrategy
 
         $body = curl_exec($handle);
         $error = curl_error($handle);
-        $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        $redirect = curl_getinfo($handle, CURLINFO_REDIRECT_URL);
         // Pas de curl_close() : déprécié en PHP 8.5, le handle se libère seul.
 
         if (!is_string($body)) {
             throw new \RuntimeException("Capture échouée ({$url}) : {$error}");
         }
-        if ($status >= 400) {
-            throw new \RuntimeException("Capture : statut HTTP {$status} pour {$url}");
-        }
+        self::assertCapturableStatus($status, $url, is_string($redirect) && $redirect !== '' ? $redirect : null);
 
         return $body;
+    }
+
+    /**
+     * Un rendu n'est capturable que sur une réponse 2xx. Une 3xx (typiquement une
+     * session expirée qui redirige vers la page de login) n'est pas suivie par
+     * conception : la stocker reviendrait à épingler un corps vide qui ferait
+     * passer recheck / golden-verify au vert à tort. On échoue donc en nommant
+     * la cible de la redirection (l'en-tête Location) plutôt que de la capturer.
+     *
+     * @throws \RuntimeException si le statut n'est pas 2xx
+     */
+    public static function assertCapturableStatus(int $status, string $url, ?string $location): void
+    {
+        if ($status >= 200 && $status < 300) {
+            return;
+        }
+        if ($status >= 300 && $status < 400) {
+            $cible = $location !== null ? " vers {$location}" : '';
+            throw new \RuntimeException(
+                "Capture : redirection HTTP {$status}{$cible} pour {$url} ; non suivie par conception "
+                . "(session expirée ?), la page n'a pas été rendue."
+            );
+        }
+
+        throw new \RuntimeException("Capture : statut HTTP {$status} pour {$url}");
     }
 
     /**

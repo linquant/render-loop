@@ -31,6 +31,47 @@ class CurlCaptureStrategyTest extends TestCase
         );
     }
 
+    public function testUnStatut2xxEstCapturable(): void
+    {
+        // Aucune exception ne doit être levée sur une réponse 2xx.
+        $this->expectNotToPerformAssertions();
+
+        CurlCaptureStrategy::assertCapturableStatus(200, 'http://localhost/page', null);
+        CurlCaptureStrategy::assertCapturableStatus(204, 'http://localhost/page', null);
+    }
+
+    /**
+     * #15 : une 3xx n'est pas suivie et ne doit jamais être stockée comme un
+     * snapshot (corps vide) ; elle doit échouer en nommant la cible (Location).
+     */
+    public function testUneRedirection3xxEchoueEnNommantLaLocation(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('http://localhost/login.php');
+
+        CurlCaptureStrategy::assertCapturableStatus(
+            302,
+            'http://localhost/compte.php',
+            'http://localhost/login.php',
+        );
+    }
+
+    public function testUneRedirection3xxSansLocationEchoueQuandMeme(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirection HTTP 301');
+
+        CurlCaptureStrategy::assertCapturableStatus(301, 'http://localhost/vieux', null);
+    }
+
+    public function testUneErreur4xxOu5xxEchoue(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('statut HTTP 404');
+
+        CurlCaptureStrategy::assertCapturableStatus(404, 'http://localhost/absent', null);
+    }
+
     public function testSansOptionLeComportementResteUnGetSansCorps(): void
     {
         $options = $this->strategie()->buildRequestOptions(null);
