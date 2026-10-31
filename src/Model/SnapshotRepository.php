@@ -46,6 +46,11 @@ final class SnapshotRepository
 
         $folder = (string) substr($id, 0, $position);
         $key = (string) substr($id, $position + 1);
+
+        if (!self::isSafeComponent($folder) || !self::isSafeComponent($key)) {
+            return null;
+        }
+
         $file = $this->rootDir . '/' . $folder . '/' . $key . '.json';
 
         return $this->read($file);
@@ -111,6 +116,28 @@ final class SnapshotRepository
         $id = file_get_contents($file);
 
         return ($id === false || trim($id) === '') ? null : trim($id);
+    }
+
+    /**
+     * Valide un composant de chemin (dossier ou clé) issu du découpage de l'id.
+     * On ferme la traversée de répertoire — séparateur de chemin, ou segment
+     * valant exactement `.`/`..` — sans sur-bloquer les noms légitimes : un
+     * dossier peut légitimement contenir `..` (ex. `foo..php`) ou commencer par
+     * un point (ex. `.env.php`), car `UrlFolderNamer` conserve les points. La
+     * condition `basename($c) === $c` garantit qu'aucun séparateur ne subsiste,
+     * ce qui protège get() ET delete() (qui délègue à get()).
+     */
+    private static function isSafeComponent(string $component): bool
+    {
+        if ($component === '' || $component === '.' || $component === '..') {
+            return false;
+        }
+
+        if (strpos($component, '/') !== false || strpos($component, '\\') !== false) {
+            return false;
+        }
+
+        return basename($component) === $component;
     }
 
     private function read(string $file): ?Snapshot
