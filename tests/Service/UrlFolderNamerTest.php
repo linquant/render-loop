@@ -47,9 +47,42 @@ class UrlFolderNamerTest extends TestCase
         self::assertStringStartsWith('fiche.php', UrlFolderNamer::toFolderName('https://app.local/dir/fiche.php'));
     }
 
-    public function testSansQueryPasDeSuffixe(): void
+    public function testSansQueryPasDeSuffixeDeQuery(): void
     {
-        self::assertSame('fiche.php', UrlFolderNamer::toFolderName('https://app.local/fiche.php'));
+        $sansQuery = UrlFolderNamer::toFolderName('https://app.local/fiche.php');
+        $avecQuery = UrlFolderNamer::toFolderName('https://app.local/fiche.php?id=1');
+
+        // Le basename reste lisible, seul le hash host+path est accolé...
+        self::assertStringStartsWith('fiche.php_', $sansQuery);
+        // ...et la query ajoute bien un suffixe supplémentaire.
+        self::assertStringStartsWith($sansQuery . '_', $avecQuery);
+    }
+
+    /**
+     * Régression #16 : deux `.php` de même basename dans des répertoires
+     * différents ne doivent pas atterrir dans le même dossier (sinon leurs
+     * baselines se contaminent).
+     */
+    public function testMemeBasenameDansDesRepertoiresDifferentsNeCollisionnentPas(): void
+    {
+        $admin = UrlFolderNamer::toFolderName('http://localhost/admin/index.php');
+        $shop = UrlFolderNamer::toFolderName('http://localhost/shop/index.php');
+
+        self::assertStringStartsWith('index.php', $admin);
+        self::assertStringStartsWith('index.php', $shop);
+        self::assertNotSame($admin, $shop);
+    }
+
+    /**
+     * Régression #16 : le même basename sur deux hôtes différents ne doit pas
+     * collisionner non plus.
+     */
+    public function testMemeBasenameSurDesHotesDifferentsNeCollisionnentPas(): void
+    {
+        $prod = UrlFolderNamer::toFolderName('http://localhost/a.php');
+        $staging = UrlFolderNamer::toFolderName('http://staging.local/a.php');
+
+        self::assertNotSame($prod, $staging);
     }
 
     public function testNomSurSeulementDesCaracteresDeDossier(): void
