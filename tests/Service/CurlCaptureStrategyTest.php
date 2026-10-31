@@ -64,6 +64,54 @@ class CurlCaptureStrategyTest extends TestCase
         CurlCaptureStrategy::assertCapturableStatus(301, 'http://localhost/vieux', null);
     }
 
+    /**
+     * #15 : une 2xx à corps vide (200 mal configuré, 204 No Content) épinglerait
+     * un snapshot vide qui passerait recheck/golden-verify au vert à tort. Elle
+     * doit être refusée, blancs seuls compris.
+     */
+    public function testUn2xxAuCorpsVideEstRefuse(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('corps vide');
+
+        CurlCaptureStrategy::assertNonEmptyBody('', 'http://localhost/page');
+    }
+
+    public function testUn2xxAuCorpsBlancSeulEstRefuse(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('corps vide');
+
+        CurlCaptureStrategy::assertNonEmptyBody("  \n\t ", 'http://localhost/page');
+    }
+
+    public function testUn2xxAvecCorpsEstAccepte(): void
+    {
+        $this->expectNotToPerformAssertions();
+
+        CurlCaptureStrategy::assertNonEmptyBody('<p>x</p>', 'http://localhost/page');
+    }
+
+    /**
+     * #15 (thread topologie) : sous `internalBase`, CURLINFO_REDIRECT_URL nomme
+     * l'hôte interne ; on ne doit pas l'exposer dans le message. Sans routage
+     * interne, la cible reste nommée (message actionnable).
+     */
+    public function testLaCibleDeRedirectionEstMasqueeSousInternalBase(): void
+    {
+        self::assertNull(
+            CurlCaptureStrategy::redirectTargetForMessage('http://web/login.php', 'http://web'),
+        );
+    }
+
+    public function testLaCibleDeRedirectionEstNommeeSansInternalBase(): void
+    {
+        self::assertSame(
+            'http://localhost/login.php',
+            CurlCaptureStrategy::redirectTargetForMessage('http://localhost/login.php', null),
+        );
+    }
+
     public function testUneErreur4xxOu5xxEchoue(): void
     {
         $this->expectException(\RuntimeException::class);
