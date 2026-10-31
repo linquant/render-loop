@@ -534,19 +534,15 @@ HELP);
             return $this->renderGoldenVerifyJson($results, $output);
         }
 
-        $changed = 0;
-        $missing = 0;
         foreach ($results as $result) {
             switch ($result->status) {
                 case 'ok':
                     $output->writeln("<info>OK</info> {$result->id}");
                     break;
                 case 'missing':
-                    $missing++;
                     $output->writeln("<comment>? {$result->id}</comment> — golden missing (run golden-record)");
                     break;
                 default:
-                    $changed++;
                     $summary = $result->diff !== null ? $result->diff->summary() : [];
                     $output->writeln("<error>CHANGED {$result->id}</error> — " . json_encode($summary, JSON_UNESCAPED_UNICODE));
                     if ($result->diff !== null) {
@@ -554,6 +550,8 @@ HELP);
                     }
             }
         }
+
+        ['changed' => $changed, 'missing' => $missing] = $this->tallyGoldenResults($results);
 
         if ($changed === 0 && $missing === 0) {
             $output->writeln('<info>Golden OK</info>: no render regression.');
@@ -575,24 +573,25 @@ HELP);
      */
     private function renderGoldenVerifyJson(array $results, OutputInterface $output): int
     {
-        $changed = 0;
-        $missing = 0;
         $cases = [];
         foreach ($results as $result) {
-            if ($result->status === 'missing') {
-                $missing++;
-            } elseif ($result->status !== 'ok') {
-                $changed++;
-            }
-
+            // `summary`/`diff` ne sont peuplés que pour un cas réellement `changed` :
+            // un cas `ok` porte un DiffResult identique (non null) et `missing` n'en
+            // a aucun — tous deux doivent rester `null` pour respecter le contrat.
+            // (La condition est inlinée pour que PHPStan affine bien le nullable.)
             $cases[] = [
                 'id' => $result->id,
                 'status' => $result->status,
-                'summary' => $result->diff !== null ? $result->diff->summary() : null,
-                'diff' => $result->diff !== null ? $result->diff->unifiedDiff : null,
+                'summary' => $result->status === 'changed' && $result->diff !== null
+                    ? $result->diff->summary()
+                    : null,
+                'diff' => $result->status === 'changed' && $result->diff !== null
+                    ? $result->diff->unifiedDiff
+                    : null,
             ];
         }
 
+        ['changed' => $changed, 'missing' => $missing] = $this->tallyGoldenResults($results);
         $regression = $changed > 0 || $missing > 0;
         $output->writeln($this->json([
             'status' => $regression ? 'regression' : 'ok',
@@ -602,6 +601,28 @@ HELP);
         ]));
 
         return $regression ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Décompte partagé par les rendus texte et json de `golden-verify`, pour que
+     * les deux chemins ne puissent pas diverger si l'ensemble des statuts évolue.
+     *
+     * @param list<GoldenCaseResult> $results
+     * @return array{changed: int, missing: int}
+     */
+    private function tallyGoldenResults(array $results): array
+    {
+        $changed = 0;
+        $missing = 0;
+        foreach ($results as $result) {
+            if ($result->status === 'missing') {
+                $missing++;
+            } elseif ($result->status !== 'ok') {
+                $changed++;
+            }
+        }
+
+        return ['changed' => $changed, 'missing' => $missing];
     }
 
     private function goldenMaster(InputInterface $input): GoldenMaster
