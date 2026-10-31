@@ -85,6 +85,32 @@ class UrlFolderNamerTest extends TestCase
         self::assertNotSame($prod, $staging);
     }
 
+    /**
+     * Régression #16 : le même host et le même path sur deux ports différents
+     * désignent deux pages différentes et ne doivent pas partager de dossier.
+     */
+    public function testDeuxPortsNeCollisionnentPas(): void
+    {
+        $p8080 = UrlFolderNamer::toFolderName('http://localhost:8080/a.php');
+        $p8081 = UrlFolderNamer::toFolderName('http://localhost:8081/a.php');
+
+        self::assertStringStartsWith('a.php', $p8080);
+        self::assertStringStartsWith('a.php', $p8081);
+        self::assertNotSame($p8080, $p8081);
+    }
+
+    /**
+     * Régression #16 : `http://` et `https://` sur le même host/path sont deux
+     * pages distinctes ; le schéma doit entrer dans le hash d'unicité.
+     */
+    public function testHttpEtHttpsNeCollisionnentPas(): void
+    {
+        $http = UrlFolderNamer::toFolderName('http://app.local/a.php');
+        $https = UrlFolderNamer::toFolderName('https://app.local/a.php');
+
+        self::assertNotSame($http, $https);
+    }
+
     public function testNomSurSeulementDesCaracteresDeDossier(): void
     {
         $name = UrlFolderNamer::toFolderName('https://app.local/chemin/avec espace/é?q=a b&c=/x');
