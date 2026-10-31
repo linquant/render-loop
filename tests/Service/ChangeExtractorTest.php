@@ -125,6 +125,50 @@ class ChangeExtractorTest extends TestCase
     }
 
     /**
+     * #32 : insérer un frère de MÊME balise avant un conteneur porteur d'un id
+     * unique décale le `nth-of-type` positionnel du conteneur. Avec une clé
+     * purement positionnelle, ce décalage cascade sur tous les descendants à texte
+     * (faux couples REMOVED+ADDED). En ancrant la clé sur l'id unique, le
+     * sous-arbre reste indépendant de la position de ses ancêtres : seule la vraie
+     * insertion apparaît.
+     */
+    public function testUneInsertionAvantUnConteneurAIdUniqueNeCascadePasSurSesDescendants(): void
+    {
+        $before = '<body><div id="panel"><p>a</p><p>b</p><p>c</p></div></body>';
+        $after = '<body><div class="new"><p>z</p></div><div id="panel"><p>a</p><p>b</p><p>c</p></div></body>';
+
+        $changes = (new ChangeExtractor())->extract($before, $after);
+
+        self::assertCount(1, $changes);
+        self::assertSame(Change::KIND_ADDED, $changes[0]->kind);
+        self::assertNull($changes[0]->before);
+        self::assertSame('z', $changes[0]->after);
+    }
+
+    /**
+     * #32 (corollaire) : une modification de texte à l'intérieur du conteneur à id
+     * unique reste correctement localisée malgré l'insertion d'un frère de même
+     * balise en amont — la clé ancrée sur l'id apparie l'avant et l'après.
+     */
+    public function testUnChangementDansUnConteneurAIdUniqueResteLocaliseMalgreUneInsertionEnAmont(): void
+    {
+        $before = '<body><div id="panel"><p>a</p><p>b</p></div></body>';
+        $after = '<body><div class="new"><p>z</p></div><div id="panel"><p>a</p><p>B</p></div></body>';
+
+        $changes = (new ChangeExtractor())->extract($before, $after);
+
+        $texts = array_values(array_filter(
+            $changes,
+            static function (Change $c): bool {
+                return $c->kind === Change::KIND_TEXT;
+            }
+        ));
+        self::assertCount(1, $texts);
+        self::assertSame('b', $texts[0]->before);
+        self::assertSame('B', $texts[0]->after);
+    }
+
+    /**
      * Au-delà du plafond, on considère que les chemins ont cascadé (insertion
      * structurelle) et on renonce à `changes[]` : le lecteur retombe sur le diff
      * unifié, le plancher toujours disponible.
