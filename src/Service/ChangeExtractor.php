@@ -91,7 +91,11 @@ final class ChangeExtractor
             if ($selector === '') {
                 continue;
             }
-            $runs[$selector] = [
+            // Indexé par un chemin positionnel UNIQUE (voir {@see self::keyPath()}),
+            // jamais par le `selector` lisible : deux frères qui partagent une classe
+            // — ou un id dupliqué — produisent le même `selector`, et l'indexer par
+            // cette chaîne ferait écraser les précédents par le dernier (#20).
+            $runs[$this->keyPath($el)] = [
                 'text' => $text,
                 'selector' => $selector,
                 'context' => $this->context($el),
@@ -164,6 +168,34 @@ final class ChangeExtractor
             }
 
             array_unshift($parts, $segment);
+            $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
+        }
+
+        return implode(' > ', $parts);
+    }
+
+    /**
+     * Chemin positionnel UNIQUE par élément, servant de CLÉ d'indexation des runs
+     * (≠ du `selector` lisible produit par {@see self::selector()}).
+     *
+     * Contrairement au `selector`, il n'intègre ni `#id` ni `.classe` : il empile un
+     * `tag:nth-of-type(n)` à chaque niveau. Deux frères qui partagent une classe (ou
+     * un id dupliqué) ont le même `selector` mais des positions distinctes, donc des
+     * clés distinctes — sans quoi le dernier écraserait les précédents et `changes[]`
+     * raterait la modification (#20).
+     */
+    private function keyPath(\DOMElement $el): string
+    {
+        $parts = [];
+        $node = $el;
+
+        while ($node instanceof \DOMElement) {
+            $tag = strtolower($node->tagName);
+            if ($tag === 'html' || $tag === 'body') {
+                break;
+            }
+
+            array_unshift($parts, $tag . $this->positionSuffix($node));
             $node = $node->parentNode instanceof \DOMElement ? $node->parentNode : null;
         }
 

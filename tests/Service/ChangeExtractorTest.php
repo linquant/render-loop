@@ -88,6 +88,43 @@ class ChangeExtractorTest extends TestCase
     }
 
     /**
+     * #20 : deux frères partageant une classe produisent le même `selector`
+     * (`ul:nth-of-type(1) > li.item`). Indexer les runs par cette chaîne faisait
+     * écraser le premier par le second, et `changes[]` ratait la modification du
+     * premier alors que le diff unifié, lui, la montrait.
+     */
+    public function testUnChangementSurUnFrereQuiPartageUneClasseEstDetecte(): void
+    {
+        $before = '<ul><li class="item">A</li><li class="item">B</li></ul>';
+        $after = '<ul><li class="item">X</li><li class="item">B</li></ul>';
+
+        $changes = (new ChangeExtractor())->extract($before, $after);
+
+        self::assertCount(1, $changes);
+        self::assertSame(Change::KIND_TEXT, $changes[0]->kind);
+        self::assertSame('A', $changes[0]->before);
+        self::assertSame('X', $changes[0]->after);
+    }
+
+    /**
+     * #20 : même défaut avec un id dupliqué (HTML invalide mais fréquent en legacy) —
+     * le `selector` s'ancre sur `#x` pour les deux, donc seule la clé positionnelle
+     * les distingue.
+     */
+    public function testUnChangementSurUnFrereAIdDupliqueEstDetecte(): void
+    {
+        $before = '<ul><li id="x">A</li><li id="x">B</li></ul>';
+        $after = '<ul><li id="x">X</li><li id="x">B</li></ul>';
+
+        $changes = (new ChangeExtractor())->extract($before, $after);
+
+        self::assertCount(1, $changes);
+        self::assertSame(Change::KIND_TEXT, $changes[0]->kind);
+        self::assertSame('A', $changes[0]->before);
+        self::assertSame('X', $changes[0]->after);
+    }
+
+    /**
      * Au-delà du plafond, on considère que les chemins ont cascadé (insertion
      * structurelle) et on renonce à `changes[]` : le lecteur retombe sur le diff
      * unifié, le plancher toujours disponible.
