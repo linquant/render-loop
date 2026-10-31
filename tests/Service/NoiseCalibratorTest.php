@@ -116,4 +116,21 @@ class NoiseCalibratorTest extends TestCase
 
         self::assertSame([], $this->calibrator()->calibrate($a, $b));
     }
+
+    public function testUnIdDupliqueNEcrasePasLElementVolatil(): void
+    {
+        // HTML malformé (que ce codebase traite) : deux éléments partagent le même
+        // `id` — une horloge volatile et un prix stable. L'appariement par keyPath
+        // ancré sur l'`id` leur donnait le même chemin, si bien que le volatil était
+        // écrasé par le stable et son bruit passait inaperçu (`[]`). Un `id` dupliqué
+        // ne doit donc pas servir d'ancre : le volatil reste détecté.
+        $a = '<div><span id="val">10:00:01</span><span id="val">1295.00</span></div>';
+        $b = '<div><span id="val">10:00:02</span><span id="val">1295.00</span></div>';
+
+        self::assertCount(
+            1,
+            $this->calibrator()->calibrate($a, $b),
+            'le volatil à id dupliqué doit rester détecté, pas écrasé par le stable',
+        );
+    }
 }

@@ -67,8 +67,12 @@ final class NoiseCalibrator
         // Appariement par chemin d'identité (keyPath), robuste à l'insertion, plutôt
         // qu'un double curseur glouton. Chaque run = la signature (texte direct +
         // attributs propres) de l'élément à ce chemin.
-        $runsA = $this->runs($docA);
-        $runsB = $this->runs($docB);
+        // keyPath n'ancre que sur un `id` UNIQUE dans le document : en HTML malformé
+        // (que ce codebase traite), deux éléments de même `id` — p.ex. une horloge
+        // volatile et un prix stable — doivent rester appariés séparément par leur
+        // position, sinon le volatil est écrasé par le stable et son bruit est perdu.
+        $runsA = $this->runs($docA, $this->idCounts($docA));
+        $runsB = $this->runs($docB, $this->idCounts($docB));
 
         $selectors = [];
 
@@ -102,13 +106,15 @@ final class NoiseCalibrator
      * La signature combine le texte direct et les attributs propres : deux éléments
      * de même chemin sont « identiques » ssi leurs signatures coïncident.
      *
+     * @param array<string, int> $idCounts fréquence de chaque `id` dans le document
+     *
      * @return array<string, array{signature: string, element: \DOMElement}>
      */
-    private function runs(\DOMDocument $document): array
+    private function runs(\DOMDocument $document, array $idCounts): array
     {
         $runs = [];
         foreach ($this->elements($document) as $element) {
-            $path = $this->keyPath($element);
+            $path = $this->keyPath($element, $idCounts);
             if ($path === '') {
                 continue; // html/body : pas d'identité propre
             }
@@ -127,8 +133,12 @@ final class NoiseCalibrator
      * suite de `tag:nth-of-type(n)` jusqu'à `body`. Insérer/retirer un bloc d'un AUTRE
      * tag ne change pas le `nth-of-type` des éléments suivants, donc leur appariement
      * est conservé. `html`/`body` n'ont pas d'identité propre → chaîne vide (ignorés).
+     * On n'ancre sur un `#id` que s'il est UNIQUE dans le document : un `id` dupliqué
+     * (HTML malformé) ne distingue pas ses porteurs, alors on retombe sur la position.
+     *
+     * @param array<string, int> $idCounts fréquence de chaque `id` dans le document
      */
-    private function keyPath(\DOMElement $element): string
+    private function keyPath(\DOMElement $element, array $idCounts): string
     {
         $parts = [];
         $node = $element;
@@ -139,7 +149,7 @@ final class NoiseCalibrator
                 break;
             }
             $id = $node->getAttribute('id');
-            if ($id !== '') {
+            if ($id !== '' && ($idCounts[$id] ?? 0) === 1) {
                 array_unshift($parts, '#' . $id);
                 break;
             }
@@ -148,6 +158,25 @@ final class NoiseCalibrator
         }
 
         return implode(' > ', $parts);
+    }
+
+    /**
+     * Fréquence de chaque `id` NON VIDE du document, en un seul parcours — sert à
+     * n'ancrer un keyPath sur un `#id` que lorsqu'il est unique.
+     *
+     * @return array<string, int>
+     */
+    private function idCounts(\DOMDocument $document): array
+    {
+        $counts = [];
+        foreach ($this->elements($document) as $element) {
+            $id = $element->getAttribute('id');
+            if ($id !== '') {
+                $counts[$id] = ($counts[$id] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
     }
 
     private function load(string $html): ?\DOMDocument
