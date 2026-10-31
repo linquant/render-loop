@@ -39,6 +39,10 @@ final class SnapshotRepository
 
     public function get(string $id): ?Snapshot
     {
+        if (!self::isSafeId($id)) {
+            return null;
+        }
+
         $position = strrpos($id, '_');
         if ($position === false) {
             return null;
@@ -111,6 +115,21 @@ final class SnapshotRepository
         $id = file_get_contents($file);
 
         return ($id === false || trim($id) === '') ? null : trim($id);
+    }
+
+    /**
+     * Un id légitime (dossier + '_' + clé) n'est composé que de caractères
+     * sûrs. On refuse tout id capable de sortir du dossier racine —
+     * séparateurs de chemin, remontée `..`, ou nom caché — ce qui ferme la
+     * traversée de répertoire pour get() ET delete() (qui délègue à get()).
+     */
+    private static function isSafeId(string $id): bool
+    {
+        if ($id === '' || strpos($id, '/') !== false || strpos($id, '\\') !== false) {
+            return false;
+        }
+
+        return strpos($id, '..') === false && $id[0] !== '.';
     }
 
     private function read(string $file): ?Snapshot
