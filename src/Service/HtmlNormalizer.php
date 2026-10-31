@@ -68,7 +68,9 @@ final class HtmlNormalizer
 
         $root = $this->config->rootSelector();
         if ($root !== null && $root !== '') {
-            $scoped = $xpath->query($this->converter->toXPath($root));
+            // Validation du sélecteur (#19) : une erreur de parse CSS devient un
+            // message actionnable nommant d'où vient le sélecteur fautif.
+            $scoped = $xpath->query(CssSelectorValidator::toXPath($this->converter, $root, 'root_selector in the normalizer config'));
             if ($scoped !== false && $scoped->length > 0) {
                 // Sérialiser TOUS les nœuds correspondants, pas seulement le
                 // premier : sinon un changement dans un second `.box` resterait
@@ -150,7 +152,7 @@ final class HtmlNormalizer
 
     private function removeMatching(\DOMXPath $xpath, string $selector): void
     {
-        $nodes = $xpath->query($this->converter->toXPath($selector));
+        $nodes = $xpath->query(CssSelectorValidator::toXPath($this->converter, $selector, 'noise_selectors in the normalizer config'));
         if ($nodes === false) {
             return;
         }
